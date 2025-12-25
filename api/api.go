@@ -22,6 +22,7 @@ type Contact struct {
 	FullName   string `json:"full_name"`
 	PushName   string `json:"push_name"`
 	IsBusiness bool   `json:"is_business"`
+	AvatarURL  string `json:"avatar_url"`
 }
 
 type ChatElement struct {
@@ -79,6 +80,7 @@ func (a *Api) Login() error {
 	} else {
 		runtime.EventsEmit(a.ctx, "wa:status", "logged_in")
 		fmt.Println("Already logged in, connecting...")
+		a.cw.Initialise(a.ctx, a.waClient)
 		// Already logged in, just connect
 		err = a.waClient.Connect()
 		if err != nil {
@@ -205,6 +207,14 @@ func (a *Api) GetChatList() ([]ChatElement, error) {
 				IsBusiness: contact.BusinessName != "",
 			}
 		}
+
+		pic, _ := a.waClient.GetProfilePictureInfo(a.ctx, cm.JID, &whatsmeow.GetProfilePictureParams{
+			Preview: true,
+		})
+		if pic != nil {
+			fc.AvatarURL = pic.URL
+		}
+
 		ce[i] = ChatElement{
 			LatestMessage: cm.MessageText,
 			Contact:       fc,
@@ -213,6 +223,35 @@ func (a *Api) GetChatList() ([]ChatElement, error) {
 	return ce, nil
 }
 
+func (a *Api) GetProfile() (Contact, error) {
+
+	me := *a.waClient.Store.ID
+
+	contact, _ := a.waClient.Store.Contacts.GetContact(a.ctx, me)
+	rawNum := "+" + me.User
+
+	jid := rawNum
+	num, err := phonenumbers.Parse(rawNum, "")
+	if err == nil && phonenumbers.IsValidNumber(num) {
+		jid = phonenumbers.Format(num, phonenumbers.INTERNATIONAL)
+	}
+
+	pic, _ := a.waClient.GetProfilePictureInfo(a.ctx, me, &whatsmeow.GetProfilePictureParams{
+		Preview: true,
+	})
+	var avatarURL string
+	if pic != nil {
+		avatarURL = pic.URL
+	}
+
+	return Contact{
+		JID:        jid,
+		FullName:   contact.FullName,
+		Short:      contact.FirstName,
+		PushName:   a.waClient.Store.PushName,
+		IsBusiness: contact.BusinessName != "",
+		AvatarURL:  avatarURL,
+	}, nil
 func (a *Api) SendMessage(chatJID string, message string) error {
 	if a.waClient.Store.ID == nil {
 		return fmt.Errorf("client not logged in")
