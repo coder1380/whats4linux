@@ -2,8 +2,8 @@ package mstore
 
 import (
 	"sort"
-	"sync"
 
+	"github.com/lugvitc/whats4linux/internal/misc"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -15,36 +15,38 @@ type Message struct {
 }
 
 type MessageStore struct {
-	mu     sync.RWMutex
-	msgMap map[types.JID][]Message
+	msgMap misc.VMap[types.JID, []Message]
+	mCache misc.VMap[string, uint8]
 }
 
 func NewMessageStore() *MessageStore {
 	return &MessageStore{
-		msgMap: make(map[types.JID][]Message),
+		msgMap: misc.NewVMap[types.JID, []Message](),
+		mCache: misc.NewVMap[string, uint8](),
 	}
 }
 
 func (ms *MessageStore) ProcessMessageEvent(msg *events.Message) {
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
+	if _, exists := ms.mCache.Get(msg.Info.ID); exists {
+		return
+	}
+	ms.mCache.Set(msg.Info.ID, 1)
 	chat := msg.Info.Chat
-	ms.msgMap[chat] = append(ms.msgMap[chat], Message{
+	ml, _ := ms.msgMap.Get(chat)
+	ml = append(ml, Message{
 		Info:    msg.Info,
 		Content: msg.Message,
 	})
+	ms.msgMap.Set(chat, ml)
 }
 
 func (ms *MessageStore) GetMessages(jid types.JID) []Message {
-	ms.mu.RLock()
-	defer ms.mu.RUnlock()
-	return ms.msgMap[jid]
+	ml, _ := ms.msgMap.Get(jid)
+	return ml
 }
 
 func (ms *MessageStore) GetMessage(chatJID types.JID, messageID string) *Message {
-	ms.mu.RLock()
-	defer ms.mu.RUnlock()
-	msgs, ok := ms.msgMap[chatJID]
+	msgs, ok := ms.msgMap.Get(chatJID)
 	if !ok {
 		return nil
 	}
@@ -63,10 +65,11 @@ type ChatMessage struct {
 }
 
 func (ms *MessageStore) GetChatList() []ChatMessage {
-	ms.mu.RLock()
-	defer ms.mu.RUnlock()
 	var chatList []ChatMessage
-	for jid, messages := range ms.msgMap {
+	msgMap, mu := ms.msgMap.GetMapWithMutex()
+	mu.RLock()
+	defer mu.RUnlock()
+	for jid, messages := range msgMap {
 		if len(messages) == 0 {
 			continue
 		}

@@ -270,6 +270,7 @@ func (a *Api) GetProfile(jidStr string) (Contact, error) {
 		AvatarURL:  avatarURL,
 	}, nil
 }
+
 func (a *Api) SendMessage(chatJID string, message string) error {
 	if a.waClient.Store.ID == nil {
 		return fmt.Errorf("client not logged in")
