@@ -4,7 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 
+	"github.com/gen2brain/beeep"
+	"github.com/lugvitc/whats4linux/internal/mstore"
 	"github.com/lugvitc/whats4linux/internal/misc"
 	"github.com/lugvitc/whats4linux/internal/settings"
 	"github.com/lugvitc/whats4linux/internal/store"
@@ -30,6 +35,12 @@ type Contact struct {
 type ChatElement struct {
 	LatestMessage string `json:"latest_message"`
 	Contact
+}
+
+type MessageContent struct {
+	Type       string `json:"type"`
+	Text       string `json:"text,omitempty"`
+	Base64Data string `json:"base64Data,omitempty"`
 }
 
 // Api struct
@@ -182,6 +193,71 @@ func (a *Api) DownloadMedia(chatJID string, messageID string) (string, error) {
 		return "", downloadErr
 	}
 
+	// Save to Downloads if image, video, document or audio
+	if msg.Content.ImageMessage != nil || msg.Content.VideoMessage != nil || msg.Content.DocumentMessage != nil || msg.Content.AudioMessage != nil {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get home directory: %v", err)
+		}
+		downloadsDir := filepath.Join(homeDir, "Downloads")
+
+		var fileName string
+		if msg.Content.ImageMessage != nil {
+			fileName = messageID + ".jpg" // Default to jpg
+		} else if msg.Content.VideoMessage != nil {
+			fileName = messageID + ".mp4" // Default to mp4
+		} else if msg.Content.AudioMessage != nil {
+			fileName = messageID + ".ogg" // Default to ogg
+		} else if msg.Content.DocumentMessage != nil {
+			if msg.Content.DocumentMessage.FileName != nil && *msg.Content.DocumentMessage.FileName != "" {
+				fileName = *msg.Content.DocumentMessage.FileName
+			} else {
+				fileName = messageID + ".bin"
+			}
+		}
+
+		filePath := filepath.Join(downloadsDir, fileName)
+
+		// Check if file exists
+		if _, err := os.Stat(filePath); err == nil {
+			// File exists, prompt user to save as
+			newPath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+				DefaultDirectory: downloadsDir,
+				DefaultFilename:  fileName,
+				Title:           "File already exists. Save as...",
+				Filters: []runtime.FileFilter{
+					{
+						DisplayName: "Media Files",
+						Pattern:     "*" + filepath.Ext(fileName),
+					},
+				},
+			})
+			if err != nil {
+				return "", err
+			}
+			if newPath == "" {
+				return "", fmt.Errorf("download cancelled")
+			}
+			filePath = newPath
+			fileName = filepath.Base(filePath)
+		}
+
+		if err := os.WriteFile(filePath, data, 0644); err != nil {
+			return "", fmt.Errorf("failed to save file: %v", err)
+		}
+
+		// Send desktop notification with beeep
+		beeep.Notify("whats4linux", fmt.Sprintf("Downloaded: %s", filePath), "")
+		go func() {
+			if _, err := exec.LookPath("mpg123"); err == nil {
+				exec.Command("mpg123", "./beep.mp3").Run()
+			}
+		}()
+
+		// Emit event for frontend listeners as well
+		runtime.EventsEmit(a.ctx, "download:complete", fileName)
+	}
+
 	return base64.StdEncoding.EncodeToString(data), nil
 }
 
@@ -275,24 +351,182 @@ func (a *Api) GetProfile(jidStr string) (Contact, error) {
 		AvatarURL:  avatarURL,
 	}, nil
 }
-
-func (a *Api) SendMessage(chatJID string, message string) error {
+func (a *Api) SendMessage(chatJID string, content MessageContent) (string, error) {
 	if a.waClient.Store.ID == nil {
-		return fmt.Errorf("client not logged in")
+		return "", fmt.Errorf("client not logged in")
 	}
 
 	parsedJID, err := types.ParseJID(chatJID)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	msgContent := &waE2E.Message{
-		Conversation: &message,
+	var msgContent *waE2E.Message
+
+	switch content.Type {
+	case "text":
+		msgContent = &waE2E.Message{
+			Conversation: &content.Text,
+		}
+	case "image":
+		// Decode base64 image data
+		imageData, err := base64.StdEncoding.DecodeString(content.Base64Data)
+		if err != nil {
+			return "", fmt.Errorf("failed to decode base64 image data: %v", err)
+		}
+
+		// Create image message
+		mimeType := "image/jpeg"
+		imageMsg := &waE2E.ImageMessage{
+			Mimetype:       &mimeType,
+			Caption:        &content.Text,
+			JPEGThumbnail:  nil, // We'll let WhatsApp generate the thumbnail
+		}
+
+		// Upload the image
+		uploaded, err := a.waClient.Upload(a.ctx, imageData, whatsmeow.MediaImage)
+		if err != nil {
+			return "", fmt.Errorf("failed to upload image: %v", err)
+		}
+
+		imageMsg.URL = &uploaded.URL
+		imageMsg.DirectPath = &uploaded.DirectPath
+		imageMsg.MediaKey = uploaded.MediaKey
+		imageMsg.FileEncSHA256 = uploaded.FileEncSHA256
+		imageMsg.FileSHA256 = uploaded.FileSHA256
+		imageMsg.FileLength = &uploaded.FileLength
+
+		msgContent = &waE2E.Message{
+			ImageMessage: imageMsg,
+		}
+	case "video":
+		// Decode base64 video data
+		videoData, err := base64.StdEncoding.DecodeString(content.Base64Data)
+		if err != nil {
+			return "", fmt.Errorf("failed to decode base64 video data: %v", err)
+		}
+
+		// Create video message
+		mimeType := "video/mp4"
+		videoMsg := &waE2E.VideoMessage{
+			Mimetype:       &mimeType,
+			Caption:        &content.Text,
+			JPEGThumbnail:  nil, // We'll let WhatsApp generate the thumbnail
+		}
+
+		// Upload the video
+		uploaded, err := a.waClient.Upload(a.ctx, videoData, whatsmeow.MediaVideo)
+		if err != nil {
+			return "", fmt.Errorf("failed to upload video: %v", err)
+		}
+
+		videoMsg.URL = &uploaded.URL
+		videoMsg.DirectPath = &uploaded.DirectPath
+		videoMsg.MediaKey = uploaded.MediaKey
+		videoMsg.FileEncSHA256 = uploaded.FileEncSHA256
+		videoMsg.FileSHA256 = uploaded.FileSHA256
+		videoMsg.FileLength = &uploaded.FileLength
+
+		msgContent = &waE2E.Message{
+			VideoMessage: videoMsg,
+		}
+	case "audio":
+		// Decode base64 audio data
+		audioData, err := base64.StdEncoding.DecodeString(content.Base64Data)
+		if err != nil {
+			return "", fmt.Errorf("failed to decode base64 audio data: %v", err)
+		}
+
+		// Create audio message
+		mimeType := "audio/ogg"
+		audioMsg := &waE2E.AudioMessage{
+			Mimetype: &mimeType,
+		}
+
+		// Upload the audio
+		uploaded, err := a.waClient.Upload(a.ctx, audioData, whatsmeow.MediaAudio)
+		if err != nil {
+			return "", fmt.Errorf("failed to upload audio: %v", err)
+		}
+
+		audioMsg.URL = &uploaded.URL
+		audioMsg.DirectPath = &uploaded.DirectPath
+		audioMsg.MediaKey = uploaded.MediaKey
+		audioMsg.FileEncSHA256 = uploaded.FileEncSHA256
+		audioMsg.FileSHA256 = uploaded.FileSHA256
+		audioMsg.FileLength = &uploaded.FileLength
+
+		msgContent = &waE2E.Message{
+			AudioMessage: audioMsg,
+		}
+	case "document":
+		// Decode base64 document data
+		documentData, err := base64.StdEncoding.DecodeString(content.Base64Data)
+		if err != nil {
+			return "", fmt.Errorf("failed to decode base64 document data: %v", err)
+		}
+
+		// Create document message
+		mimeType := "application/pdf" // Default, should be detected
+		fileName := "document.pdf"     // Default, should be provided
+		documentMsg := &waE2E.DocumentMessage{
+			Mimetype: &mimeType,
+			FileName: &fileName,
+			Caption:  &content.Text,
+		}
+
+		// Upload the document
+		uploaded, err := a.waClient.Upload(a.ctx, documentData, whatsmeow.MediaDocument)
+		if err != nil {
+			return "", fmt.Errorf("failed to upload document: %v", err)
+		}
+
+		documentMsg.URL = &uploaded.URL
+		documentMsg.DirectPath = &uploaded.DirectPath
+		documentMsg.MediaKey = uploaded.MediaKey
+		documentMsg.FileEncSHA256 = uploaded.FileEncSHA256
+		documentMsg.FileSHA256 = uploaded.FileSHA256
+		documentMsg.FileLength = &uploaded.FileLength
+
+		msgContent = &waE2E.Message{
+			DocumentMessage: documentMsg,
+		}
+	case "sticker":
+		// Decode base64 sticker data
+		stickerData, err := base64.StdEncoding.DecodeString(content.Base64Data)
+		if err != nil {
+			return "", fmt.Errorf("failed to decode base64 sticker data: %v", err)
+		}
+
+		// Create sticker message
+		mimeType := "image/webp"
+		stickerMsg := &waE2E.StickerMessage{
+			Mimetype: &mimeType,
+		}
+
+		// Upload the sticker
+		uploaded, err := a.waClient.Upload(a.ctx, stickerData, whatsmeow.MediaImage) // Stickers use MediaImage
+		if err != nil {
+			return "", fmt.Errorf("failed to upload sticker: %v", err)
+		}
+
+		stickerMsg.URL = &uploaded.URL
+		stickerMsg.DirectPath = &uploaded.DirectPath
+		stickerMsg.MediaKey = uploaded.MediaKey
+		stickerMsg.FileEncSHA256 = uploaded.FileEncSHA256
+		stickerMsg.FileSHA256 = uploaded.FileSHA256
+		stickerMsg.FileLength = &uploaded.FileLength
+
+		msgContent = &waE2E.Message{
+			StickerMessage: stickerMsg,
+		}
+	default:
+		return "", fmt.Errorf("unsupported message type: %s", content.Type)
 	}
 
 	resp, err := a.waClient.SendMessage(a.ctx, parsedJID, msgContent)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// Manually add to store and emit event so UI updates immediately
@@ -310,7 +544,7 @@ func (a *Api) SendMessage(chatJID string, message string) error {
 	})
 	runtime.EventsEmit(a.ctx, "wa:new_message")
 
-	return nil
+	return resp.ID, nil
 }
 
 func (a *Api) mainEventHandler(evt interface{}) {
@@ -321,4 +555,5 @@ func (a *Api) mainEventHandler(evt interface{}) {
 	default:
 		// Ignore other events for now
 	}
+	
 }

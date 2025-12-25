@@ -3,6 +3,64 @@ import { FetchMessages, DownloadMedia, SendMessage, GetProfile } from "../../wai
 import { mstore } from "../../wailsjs/go/models";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
 
+// WhatsApp-style markdown parser
+function parseWhatsAppMarkdown(text: string): React.ReactNode[] {
+    if (!text) return [text];
+
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+
+    // Regex patterns for WhatsApp formatting
+    const patterns = [
+        { regex: /\*([^*]+)\*/g, style: { fontWeight: 'bold' } }, // *bold*
+        { regex: /_([^_]+)_/g, style: { fontStyle: 'italic' } }, // _italic_
+        { regex: /~([^~]+)~/g, style: { textDecoration: 'line-through' } }, // ~strikethrough~
+        { regex: /`([^`]+)`/g, style: { fontFamily: 'monospace', backgroundColor: 'rgba(0,0,0,0.1)', padding: '2px 4px', borderRadius: '3px' } }, // `code`
+    ];
+
+    // Find all matches and their positions
+    const matches: Array<{ start: number, end: number, style: any, content: string }> = [];
+
+    patterns.forEach(({ regex, style }) => {
+        let match;
+        while ((match = regex.exec(text)) !== null) {
+            matches.push({
+                start: match.index,
+                end: match.index + match[0].length,
+                style,
+                content: match[1]
+            });
+        }
+    });
+
+    // Sort matches by start position
+    matches.sort((a, b) => a.start - b.start);
+
+    // Process matches and create React elements
+    matches.forEach((match, index) => {
+        // Add text before this match
+        if (match.start > lastIndex) {
+            parts.push(text.slice(lastIndex, match.start));
+        }
+
+        // Add the formatted text
+        parts.push(
+            <span key={index} style={match.style}>
+                {match.content}
+            </span>
+        );
+
+        lastIndex = match.end;
+    });
+
+    // Add remaining text
+    if (lastIndex < text.length) {
+        parts.push(text.slice(lastIndex));
+    }
+
+    return parts.length > 0 ? parts : [text];
+}
+
 interface ChatDetailProps {
     chatId: string;
     chatName: string;
@@ -14,6 +72,12 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
     const [messages, setMessages] = useState<mstore.Message[]>([]);
     const [inputText, setInputText] = useState("");
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [pastedImage, setPastedImage] = useState<string | null>(null);
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [selectedFileType, setSelectedFileType] = useState<string>("");
+    const sentMediaCache = useRef<Map<string, string>>(new Map());
 
     const loadMessages = () => {
         FetchMessages(chatId).then((msgs) => {
@@ -28,11 +92,41 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
 
+    const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        setInputText(e.target.value);
+        adjustTextareaHeight();
+    };
+
+    const adjustTextareaHeight = () => {
+        const textarea = textareaRef.current;
+        if (textarea) {
+            textarea.style.height = 'auto';
+            const scrollHeight = textarea.scrollHeight;
+            const lineHeight = parseInt(getComputedStyle(textarea).lineHeight);
+            const maxHeight = lineHeight * 8; // Maximum 8 lines
+            textarea.style.height = Math.min(scrollHeight, maxHeight) + 'px';
+        }
+    };
+
     const handleSendMessage = async () => {
-        if (!inputText.trim()) return;
+        if (!inputText.trim() && !pastedImage && !selectedFile) return;
 
         const textToSend = inputText;
+        const imageToSend = pastedImage;
+        const fileToSend = selectedFile;
+        const fileTypeToSend = selectedFileType;
         setInputText("");
+        setPastedImage(null);
+        setSelectedFile(null);
+        setSelectedFileType("");
+
+        // Reset textarea height
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+        }
+        if (fileInputRef.current) {
+            fileInputRef.current.value = "";
+        }
 
         // Optimistic update
         const tempMsg: any = {
@@ -41,7 +135,17 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
                 IsFromMe: true,
                 Timestamp: new Date().toISOString(),
             },
-            Content: {
+            Content: imageToSend ? {
+                imageMessage: {
+                    caption: textToSend,
+                    _tempImage: imageToSend
+                }
+            } : fileToSend ? {
+                [`${fileTypeToSend}Message`]: {
+                    caption: textToSend,
+                    _tempFile: fileToSend
+                }
+            } : {
                 conversation: textToSend
             }
         };
@@ -50,17 +154,92 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
         setTimeout(scrollToBottom, 100);
 
         try {
-            await SendMessage(chatId, textToSend);
+            if (imageToSend) {
+                const base64 = imageToSend.split(',')[1];
+                const newId = await SendMessage(chatId, { type: "image", base64Data: base64, text: textToSend });
+                if (newId) {
+                    sentMediaCache.current.set(newId, imageToSend);
+                }
+            } else if (fileToSend) {
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    const base64 = (event.target?.result as string).split(',')[1];
+                    const newId = await SendMessage(chatId, { type: fileTypeToSend, base64Data: base64, text: textToSend });
+                    if (newId) {
+                        sentMediaCache.current.set(newId, event.target?.result as string);
+                    }
+                };
+                reader.readAsDataURL(fileToSend);
+            } else {
+                await SendMessage(chatId, { type: "text", text: textToSend });
+            }
             loadMessages();
         } catch (err) {
             console.error("Failed to send message:", err);
             setMessages(prev => prev.filter(m => m.Info.ID !== tempMsg.Info.ID));
             setInputText(textToSend);
+            setPastedImage(imageToSend);
+            setSelectedFile(fileToSend);
+            setSelectedFileType(fileTypeToSend);
+            // Re-adjust height after setting text back
+            setTimeout(adjustTextareaHeight, 0);
+        }
+    };
+
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setSelectedFile(file);
+            // Determine type based on mime type
+            if (file.type.startsWith('image/')) {
+                setSelectedFileType('image');
+            } else if (file.type.startsWith('video/')) {
+                setSelectedFileType('video');
+            } else if (file.type.startsWith('audio/')) {
+                setSelectedFileType('audio');
+            } else {
+                setSelectedFileType('document');
+            }
+        }
+    };
+
+    const removeSelectedFile = () => {
+        setSelectedFile(null);
+        setSelectedFileType("");
+        if (fileInputRef.current) {
+            fileInputRef.current.value = "";
+        }
+        setTimeout(adjustTextareaHeight, 0);
+    };
+
+    const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            if (item.type.indexOf('image') !== -1) {
+                e.preventDefault();
+                
+                const file = item.getAsFile();
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = async (event) => {
+                        const base64 = (event.target?.result as string);
+                        setPastedImage(base64);
+                        // Adjust height for the image preview
+                        setTimeout(adjustTextareaHeight, 0);
+                    };
+                    reader.readAsDataURL(file);
+                }
+                break;
+            }
         }
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter') {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
             handleSendMessage();
         }
     };
@@ -102,34 +281,75 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
             {/* Messages Area */}
             <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-repeat" style={{ backgroundImage: "url('/assets/images/bg-chat-tile-dark.png')" }}>
                 {messages.map((msg, idx) => (
-                    <MessageItem key={msg.Info.ID || idx} message={msg} chatId={chatId} />
+                    <MessageItem key={msg.Info.ID || idx} message={msg} chatId={chatId} sentMediaCache={sentMediaCache} />
                 ))}
                 <div ref={messagesEndRef} />
             </div>
 
             {/* Input Area Skeleton */}
-            <div className="p-3 bg-[#f0f2f5] dark:bg-[#202c33] flex items-center gap-2">
+            <div className="p-3 bg-[#f0f2f5] dark:bg-[#202c33] flex items-end gap-2">
                 <button className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200" title="Emoji">
                     <svg viewBox="0 0 24 24" width="24" height="24" className="fill-current">
                         <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/>
                     </svg>
                 </button>
-                <button className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200" title="Attach">
+                <button className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200" title="Attach" onClick={() => fileInputRef.current?.click()}>
                     <svg viewBox="0 0 24 24" width="24" height="24" className="fill-current">
                         <path d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5a2.5 2.5 0 0 1 5 0v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5a2.5 2.5 0 0 0 5 0V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z"/>
                     </svg>
                 </button>
-                <div className="flex-1 bg-white dark:bg-[#2a3942] rounded-lg px-4 py-2 flex items-center">
-                    <input 
-                        type="text" 
+                <div className="flex-1 bg-white dark:bg-[#2a3942] rounded-lg px-4 py-2 flex flex-col">
+                    {pastedImage && (
+                        <div className="mb-2 relative">
+                            <img 
+                                src={pastedImage} 
+                                alt="Pasted image" 
+                                className="max-w-full max-h-32 rounded-lg object-cover"
+                            />
+                            <button
+                                onClick={removeSelectedFile}
+                                className="absolute top-1 right-1 bg-black/50 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-black/70"
+                                title="Remove file"
+                            >
+                                ×
+                            </button>
+                        </div>
+                    )}
+                    {selectedFile && (
+                        <div className="mb-2 relative">
+                            <div className="bg-gray-100 dark:bg-gray-700 p-2 rounded-lg flex items-center gap-2">
+                                <span className="text-sm text-gray-700 dark:text-gray-300 truncate">{selectedFile.name}</span>
+                                <span className="text-xs text-gray-500 dark:text-gray-400">({selectedFileType})</span>
+                            </div>
+                            <button
+                                onClick={removeSelectedFile}
+                                className="absolute top-1 right-1 bg-black/50 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-black/70"
+                                title="Remove file"
+                            >
+                                ×
+                            </button>
+                        </div>
+                    )}
+                    <textarea 
+                        ref={textareaRef}
                         placeholder="Type a message" 
-                        className="w-full bg-transparent outline-none text-gray-800 dark:text-gray-100"
+                        className="w-full bg-transparent outline-none text-gray-800 dark:text-gray-100 resize-none overflow-hidden"
                         value={inputText}
-                        onChange={(e) => setInputText(e.target.value)}
+                        onChange={handleInputChange}
                         onKeyDown={handleKeyDown}
+                        onPaste={handlePaste}
+                        rows={1}
+                        style={{ minHeight: '24px', maxHeight: '192px' }} // 1 line to 8 lines (24px * 8)
                     />
                 </div>
-                {inputText.trim() ? (
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.zip,.rar"
+                    onChange={handleFileSelect}
+                    className="hidden"
+                />
+                {inputText.trim() || pastedImage || selectedFile ? (
                     <button onClick={handleSendMessage} className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200" title="Send">
                         <svg viewBox="0 0 24 24" width="24" height="24" className="fill-current text-[#00a884] dark:text-[#00a884]">
                             <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
@@ -148,7 +368,7 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
     );
 }
 
-function MediaContent({ message, type, chatId }: { message: mstore.Message, type: 'image' | 'video' | 'sticker' | 'audio' | 'document', chatId: string }) {
+function MediaContent({ message, type, chatId, sentMediaCache }: { message: mstore.Message, type: 'image' | 'video' | 'sticker' | 'audio' | 'document', chatId: string, sentMediaCache?: React.MutableRefObject<Map<string, string>> }) {
     const [mediaSrc, setMediaSrc] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -196,6 +416,21 @@ function MediaContent({ message, type, chatId }: { message: mstore.Message, type
             // fire-and-forget
             handleDownload().catch(() => {});
         }
+        
+        // Check for temp media
+        if (type === 'image') {
+            if ((message.Content as any)?.imageMessage?._tempImage) {
+                setMediaSrc((message.Content as any).imageMessage._tempImage);
+            } else if (sentMediaCache && sentMediaCache.current.has(message.Info.ID)) {
+                setMediaSrc(sentMediaCache.current.get(message.Info.ID)!);
+            }
+        } else if (type === 'video' || type === 'audio' || type === 'document') {
+            if ((message.Content as any)?.[`${type}Message`]?.[`_tempFile`]) {
+                setMediaSrc((message.Content as any)[`${type}Message`][`_tempFile`]);
+            } else if (sentMediaCache && sentMediaCache.current.has(message.Info.ID)) {
+                setMediaSrc(sentMediaCache.current.get(message.Info.ID)!);
+            }
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -226,17 +461,16 @@ function MediaContent({ message, type, chatId }: { message: mstore.Message, type
                     <span className="text-gray-500 dark:text-gray-400">{type.toUpperCase()}</span>
                 </div>
             )}
-            <div className="absolute inset-0 flex items-center justify-center">
-                {!loading && !mediaSrc && (
-                    <button onClick={handleDownload} className="bg-black/50 hover:bg-black/70 text-white rounded-full p-2">
-                        <svg viewBox="0 0 24 24" width="24" height="24" className="fill-current">
+            <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-lg">
+                {loading ? (
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+                ) : !mediaSrc ? (
+                    <button onClick={handleDownload} className="bg-black/50 hover:bg-black/70 text-white rounded-full p-3 transition-colors">
+                        <svg viewBox="0 0 24 24" width="20" height="20" className="fill-current">
                             <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
                         </svg>
                     </button>
-                )}
-                {loading && (
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
-                )}
+                ) : null}
             </div>
             {error && <div className="text-red-500 text-xs mt-1">{error}</div>}
         </div>
@@ -258,9 +492,9 @@ function QuotedMessage({ contextInfo }: { contextInfo: any }) {
     const quoted = contextInfo.quotedMessage || contextInfo.QuotedMessage;
     if (!quoted) return null;
 
-    let text = "Unsupported message";
-    if (quoted.conversation) text = quoted.conversation;
-    else if (quoted.extendedTextMessage?.text) text = quoted.extendedTextMessage.text;
+    let text: React.ReactNode = "Unsupported message";
+    if (quoted.conversation) text = parseWhatsAppMarkdown(quoted.conversation);
+    else if (quoted.extendedTextMessage?.text) text = parseWhatsAppMarkdown(quoted.extendedTextMessage.text);
     else if (quoted.imageMessage) text = "📷 Photo";
     else if (quoted.videoMessage) text = "🎥 Video";
     else if (quoted.audioMessage) text = "🎵 Audio";
@@ -275,14 +509,21 @@ function QuotedMessage({ contextInfo }: { contextInfo: any }) {
     );
 }
 
-function MessageItem({ message, chatId }: { message: mstore.Message, chatId: string }) {
+function MessageItem({ message, chatId, sentMediaCache }: { message: mstore.Message, chatId: string, sentMediaCache?: React.MutableRefObject<Map<string, string>> }) {
     const isMe = message.Info.IsFromMe;
-    const senderName = message.Info.PushName || "Unknown";
     const isTemp = message.Info.ID.startsWith("temp-");
     const isSticker = !!message.Content?.stickerMessage;
     const isImageOrVideo = !!(message.Content?.imageMessage || message.Content?.videoMessage);
     const timeStr = new Date(message.Info.Timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     
+    const senderName = (
+        (message.Info as any)?.Participant ||
+        (message.Info as any)?.Sender ||
+        (message.Info as any)?.RemoteJid ||
+        (message.Content as any)?.senderName ||
+        ""
+    ).toString();
+
     // Check for quoted message
     const contextInfo = message.Content?.extendedTextMessage?.contextInfo ||
                         message.Content?.imageMessage?.contextInfo ||
@@ -299,27 +540,27 @@ function MessageItem({ message, chatId }: { message: mstore.Message, chatId: str
     let content: React.ReactNode = "";
 
     if (message.Content?.conversation) {
-        content = message.Content.conversation;
+        content = parseWhatsAppMarkdown(message.Content.conversation);
     } else if (message.Content?.extendedTextMessage?.text) {
-        content = message.Content.extendedTextMessage.text;
+        content = parseWhatsAppMarkdown(message.Content.extendedTextMessage.text);
     } else if (message.Content?.imageMessage) {
         content = (
             <div>
-                <MediaContent message={message} type="image" chatId={chatId} />
-                {message.Content.imageMessage.caption && <div className="mt-1">{message.Content.imageMessage.caption}</div>}
+                <MediaContent message={message} type="image" chatId={chatId} sentMediaCache={sentMediaCache} />
+                {message.Content.imageMessage.caption && <div className="mt-1">{parseWhatsAppMarkdown(message.Content.imageMessage.caption)}</div>}
             </div>
         );
     } else if (message.Content?.stickerMessage) {
-        content = <MediaContent message={message} type="sticker" chatId={chatId} />;
+        content = <MediaContent message={message} type="sticker" chatId={chatId} sentMediaCache={sentMediaCache} />;
     } else if (message.Content?.videoMessage) {
         content = (
             <div>
-                <MediaContent message={message} type="video" chatId={chatId} />
-                {message.Content.videoMessage.caption && <div className="mt-1">{message.Content.videoMessage.caption}</div>}
+                <MediaContent message={message} type="video" chatId={chatId} sentMediaCache={sentMediaCache} />
+                {message.Content.videoMessage.caption && <div className="mt-1">{parseWhatsAppMarkdown(message.Content.videoMessage.caption)}</div>}
             </div>
         );
     } else if (message.Content?.audioMessage) {
-        content = <MediaContent message={message} type="audio" chatId={chatId} />;
+        content = <MediaContent message={message} type="audio" chatId={chatId} sentMediaCache={sentMediaCache} />;
     } else if (message.Content?.viewOnceMessage?.message?.imageMessage) {
         content = "📷 Photo (View Once)";
     } else if (message.Content?.viewOnceMessage?.message?.videoMessage) {
@@ -329,15 +570,46 @@ function MessageItem({ message, chatId }: { message: mstore.Message, chatId: str
     } else if (message.Content?.viewOnceMessageV2?.message?.videoMessage) {
         content = "🎥 Video (View Once V2)";
     } else if (message.Content?.documentMessage) {
+        const doc = message.Content.documentMessage;
+        const fileName = doc.fileName || "Document";
+        const fileLength = typeof doc.fileLength === 'number' ? doc.fileLength : (doc.fileLength as any)?.low || 0;
+        const extension = fileName.split('.').pop()?.toUpperCase() || "FILE";
+        
+        const formatSize = (bytes: number) => {
+            if (!bytes) return "0 B";
+            const k = 1024;
+            const sizes = ["B", "KB", "MB", "GB"];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+        };
+
         content = (
-            <div className="flex items-center gap-2">
-                <div className="p-2 bg-gray-200 dark:bg-gray-700 rounded-lg">
-                    📄
+            <div>
+                <div className="flex items-center gap-3 bg-black/5 dark:bg-white/5 p-2 rounded-lg min-w-[240px]">
+                    <div className="w-10 h-12 bg-red-500 rounded-lg flex items-center justify-center text-white font-bold text-xs relative">
+                         <div className="absolute top-0 right-0 border-t-[12px] border-r-[12px] border-t-white/20 border-r-transparent"></div>
+                         {extension.slice(0, 4)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <div className="truncate font-medium text-sm">{fileName}</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                            {extension} • {formatSize(fileLength)}
+                        </div>
+                    </div>
+                    <button 
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            console.log("Attempting document download:", { chatId, messageId: message.Info.ID });
+                            DownloadMedia(chatId, message.Info.ID).catch((err) => console.error("Document download failed:", err));
+                        }}
+                        className="w-10 h-10 flex items-center justify-center border border-gray-300 dark:border-gray-600 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                    >
+                        <svg viewBox="0 0 24 24" width="20" height="20" className="fill-current text-gray-500 dark:text-gray-400">
+                            <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+                        </svg>
+                    </button>
                 </div>
-                <div>
-                    <div className="font-bold">{message.Content.documentMessage.fileName || "Document"}</div>
-                    <button onClick={() => {/* TODO: Download document */}} className="text-blue-500 text-sm">Download</button>
-                </div>
+                {doc.caption && <div className="mt-1">{parseWhatsAppMarkdown(doc.caption)}</div>}
             </div>
         );
     } else if (message.Content?.contactMessage) {
@@ -392,7 +664,7 @@ function MessageItem({ message, chatId }: { message: mstore.Message, chatId: str
 
     return (
         <div className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-            <div className={`${isImageOrVideo ? 'max-w-[30%]' : 'max-w-[70%]'} rounded-lg p-2 px-3 shadow-sm relative group ${
+            <div className={`${isImageOrVideo ? 'max-w-[65%]' : 'max-w-[70%]'} rounded-lg p-2 px-3 shadow-sm relative group ${
                 isMe 
                 ? 'bg-[#d9fdd3] dark:bg-[#005c4b] text-gray-900 dark:text-gray-100 rounded-tr-none' 
                 : 'bg-white dark:bg-[#202c33] text-gray-900 dark:text-gray-100 rounded-tl-none'

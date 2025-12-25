@@ -13,6 +13,7 @@ function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [status, setStatus] = useState<string>("waiting");
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [notifications, setNotifications] = useState<{id: number, message: string}[]>([]);
 
   useEffect(() => {
     if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
@@ -49,17 +50,33 @@ function App() {
       }
     });
 
+    const unsubDownload = EventsOn("download:complete", (fileName: string) => {
+      const id = Date.now();
+      setNotifications(prev => [...prev, { id, message: `Downloaded: ${fileName}` }]);
+      setTimeout(() => {
+        setNotifications(prev => prev.filter(n => n.id !== id));
+      }, 3000);
+    });
+
     return () => {
       unsubQR();
       unsubStatus();
+      unsubDownload();
     };
   }, []);
 
   return (
     <div className={`min-h-screen ${theme === 'dark' ? 'bg-black text-white' : 'bg-light-secondary text-light-text'} relative`}>
+        <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+            {notifications.map(n => (
+                <div key={n.id} className="bg-zinc-800 text-white px-4 py-2 rounded shadow-lg">
+                    {n.message}
+                </div>
+            ))}
+        </div>
         <button 
             onClick={toggleTheme} 
-            className={`absolute top-4 right-4 p-2 rounded-full z-50 ${theme === 'dark' ? 'bg-[#1a1a1a] hover:bg-[#2a2a2a]' : 'bg-gray-200 hover:bg-gray-300'}`}
+            className={`absolute top-4 right-4 p-2 rounded-full z-50 ${theme === 'dark' ? 'bg-dark-tertiary hover:bg-[#2a2a2a]' : 'bg-gray-200 hover:bg-gray-300'}`}
         >
             {theme === 'light' ? (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" width="20" height="20" fill="currentColor">
