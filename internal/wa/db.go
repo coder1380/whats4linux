@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/lugvitc/whats4linux/internal/db"
+
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	waLog "go.mau.fi/whatsmeow/util/log"
@@ -36,17 +38,7 @@ func (cw *ContainerWrapper) GetContainer() *sqlstore.Container {
 }
 
 func (cw *ContainerWrapper) Initialise(ctx context.Context, client *whatsmeow.Client) error {
-	query := `
-	CREATE TABLE IF NOT EXISTS whats4linux_groups (
-		jid TEXT PRIMARY KEY,
-		name TEXT,
-		topic TEXT,
-		owner_jid TEXT,
-		participant_count INTEGER
-	);
-	`
-
-	_, err := cw.db.Exec(query)
+	_, err := cw.db.Exec(query.CreateGroupsTable)
 	if err != nil {
 		return fmt.Errorf("failed to create whats4linux_groups table: %w", err)
 	}
@@ -70,10 +62,7 @@ func (cw *ContainerWrapper) FetchAndStoreGroups(ctx context.Context, client *wha
 	}
 	defer tx.Rollback()
 
-	stmt, err := tx.Prepare(`
-	INSERT OR REPLACE INTO whats4linux_groups (jid, name, topic, owner_jid, participant_count)
-	VALUES (?, ?, ?, ?, ?);
-	`)
+	stmt, err := tx.Prepare(query.InsertOrReplaceGroup)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
@@ -108,10 +97,7 @@ type Group struct {
 }
 
 func (cw *ContainerWrapper) FetchGroups() ([]Group, error) {
-	rows, err := cw.db.Query(`
-	SELECT jid, name, topic, owner_jid, participant_count
-	FROM whats4linux_groups;
-	`)
+	rows, err := cw.db.Query(query.SelectAllGroups)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query groups: %w", err)
 	}
@@ -135,11 +121,7 @@ func (cw *ContainerWrapper) FetchGroups() ([]Group, error) {
 }
 
 func (cw *ContainerWrapper) FetchGroup(jid string) (*Group, error) {
-	row := cw.db.QueryRow(`
-	SELECT jid, name, topic, owner_jid, participant_count
-	FROM whats4linux_groups
-	WHERE jid = ?;
-	`, jid)
+	row := cw.db.QueryRow(query.SelectGroupByJID, jid)
 
 	var g Group
 	err := row.Scan(&g.JID, &g.Name, &g.Topic, &g.OwnerJID, &g.ParticipantCount)

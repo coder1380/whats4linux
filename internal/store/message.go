@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"github.com/lugvitc/whats4linux/internal/misc"
+	"github.com/lugvitc/whats4linux/internal/db"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -48,19 +49,7 @@ func NewMessageStore() (*MessageStore, error) {
 }
 
 func (ms *MessageStore) initSchema() error {
-	schema := `
-	CREATE TABLE IF NOT EXISTS messages (
-		chat TEXT NOT NULL,
-		message_id TEXT PRIMARY KEY,
-		timestamp INTEGER,
-		msg_info BLOB,
-		raw_message BLOB
-	);
-
-	CREATE INDEX IF NOT EXISTS idx_messages_chat_time
-	ON messages(chat, timestamp DESC);
-	`
-	_, err := ms.db.Exec(schema)
+	_, err := ms.db.Exec(query.CreateSchema)
 	return err
 }
 
@@ -154,11 +143,7 @@ func (ms *MessageStore) GetChatList() []ChatMessage {
 }
 
 func (ms *MessageStore) loadMessagesFromDB() error {
-	rows, err := ms.db.Query(`
-		SELECT chat, message_id, timestamp, msg_info, raw_message
-		FROM messages
-		ORDER BY timestamp ASC
-	`)
+	rows, err := ms.db.Query(query.SelectAllMessages)
 	if err != nil {
 		return err
 	}
@@ -214,11 +199,7 @@ func (ms *MessageStore) insertMessageToDB(msg *Message) error {
 		return err
 	}
 
-	_, err = ms.db.Exec(`
-		INSERT OR IGNORE INTO messages
-		(chat, message_id, timestamp, msg_info, raw_message)
-		VALUES (?, ?, ?, ?, ?)
-	`,
+	_, err = ms.db.Exec(query.InsertMessage,
 		msg.Info.Chat.String(),
 		msg.Info.ID,
 		msg.Info.Timestamp.Unix(),
