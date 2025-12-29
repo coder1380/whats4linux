@@ -49,7 +49,7 @@ const DropDown = ({
     if (dropdownRef.current && arrowRef.current) {
       if (onOpen) {
         gsap.to(dropdownRef.current, {
-          scale: 1,
+          height: "auto",
           opacity: 1,
           duration: 0.3,
           ease: "power2.out",
@@ -61,7 +61,7 @@ const DropDown = ({
         })
       } else {
         gsap.to(dropdownRef.current, {
-          scale: 0,
+          height: 0,
           opacity: 0,
           duration: 0.3,
           ease: "power2.in",
@@ -90,11 +90,7 @@ const DropDown = ({
           ▼
         </span>
       </div>
-      <div
-        ref={dropdownRef}
-        className="overflow-hidden origin-top"
-        style={{ scale: 0, opacity: 0 }}
-      >
+      <div ref={dropdownRef} className="overflow-hidden" style={{ height: 0, opacity: 0 }}>
         <div className="mt-2 bg-white dark:bg-gray-800 rounded-md shadow-lg border border-gray-200 dark:border-gray-700">
           {elements.map((element, index) => (
             <div
