@@ -567,7 +567,7 @@ func (a *Api) SendMessage(chatJID string, content MessageContent) (string, error
 	return resp.ID, nil
 }
 
-func (a *Api) mainEventHandler(evt interface{}) {
+func (a *Api) mainEventHandler(evt any) {
 	switch v := evt.(type) {
 	case *events.Message:
 		a.messageStore.ProcessMessageEvent(v)
