@@ -13,6 +13,16 @@
   --color-green: #21c063;
   --color-hover-icons: #2d2e2e;
 
+  /* Chat Bubble */
+  --color-sent-bubble-bg: #d9fdd3;
+  --color-sent-bubble-dark-bg: #005c4b;
+  --color-received-bubble-bg: #ffffff;
+  --color-received-bubble-dark-bg: #202c33;
+  --color-sent-bubble-text: #101828;
+  --color-sent-bubble-dark-text: #ffffff;
+  --color-received-bubble-text: #101828;
+  --color-received-bubble-dark-text: #ffffff;
+
   /* Toggle Button */
   --color-toggle-bg: #21c063;
   --color-toggle-dark-bg: #21c063;
