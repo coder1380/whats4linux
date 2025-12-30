@@ -8,6 +8,7 @@ This project is licensed under the AGPL-3.0 License.
 
 ## Contributing
 
+
 Pull requests are welcome. For major changes, please open an issue first.
 
 - Set `USE_SAMPLE_DATA` to `false` in `src/main.rs` to test with real WhatsApp data.
