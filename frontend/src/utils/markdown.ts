@@ -1,25 +1,25 @@
 import React from "react"
 
+const patterns = [
+  { regex: /\*([^*]+)\*/g, style: { fontWeight: "bold" } },
+  { regex: /_([^_]+)_/g, style: { fontStyle: "italic" } },
+  { regex: /~([^~]+)~/g, style: { textDecoration: "line-through" } },
+  {
+    regex: /`([^`]+)`/g,
+    style: {
+      fontFamily: "monospace",
+      backgroundColor: "rgba(0,0,0,0.1)",
+      padding: "2px 4px",
+      borderRadius: "3px",
+    },
+  },
+]
+
 export function parseWhatsAppMarkdown(text: string): React.ReactNode[] {
   if (!text) return [text]
 
   const parts: React.ReactNode[] = []
   let lastIndex = 0
-
-  const patterns = [
-    { regex: /\*([^*]+)\*/g, style: { fontWeight: "bold" } },
-    { regex: /_([^_]+)_/g, style: { fontStyle: "italic" } },
-    { regex: /~([^~]+)~/g, style: { textDecoration: "line-through" } },
-    {
-      regex: /`([^`]+)`/g,
-      style: {
-        fontFamily: "monospace",
-        backgroundColor: "rgba(0,0,0,0.1)",
-        padding: "2px 4px",
-        borderRadius: "3px",
-      },
-    },
-  ]
 
   const matches: Array<{ start: number; end: number; style: any; content: string }> = []
 
