@@ -4,54 +4,49 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sync"
 
-	"github.com/lugvitc/whats4linux/internal/db"
+	query "github.com/lugvitc/whats4linux/internal/db"
+	"github.com/lugvitc/whats4linux/internal/misc"
 
 	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/store/sqlstore"
-	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
-type ContainerWrapper struct {
-	db *sql.DB
-	c  *sqlstore.Container
+type AppDatabase struct {
+	db  *sql.DB
+	mu  sync.Mutex
+	ctx context.Context
 }
 
-func NewContainerWrapper(ctx context.Context, dialect, address string, log waLog.Logger) (*ContainerWrapper, error) {
-	db, err := sql.Open(dialect, address)
+func NewAppDatabase(ctx context.Context) (*AppDatabase, error) {
+	db, err := sql.Open("sqlite3", misc.GetSQLiteAddress("app.db"))
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+		return nil, err
 	}
-	container := sqlstore.NewWithDB(db, dialect, log)
-	err = container.Upgrade(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to upgrade database: %w", err)
-	}
-	return &ContainerWrapper{
-		db: db,
-		c:  container,
+	return &AppDatabase{
+		db:  db,
+		ctx: ctx,
 	}, nil
 }
 
-func (cw *ContainerWrapper) GetContainer() *sqlstore.Container {
-	return cw.c
-}
-
-func (cw *ContainerWrapper) Initialise(ctx context.Context, client *whatsmeow.Client) error {
+func (cw *AppDatabase) Initialise(client *whatsmeow.Client) error {
 	_, err := cw.db.Exec(query.CreateGroupsTable)
 	if err != nil {
 		return fmt.Errorf("failed to create whats4linux_groups table: %w", err)
 	}
 
-	err = cw.FetchAndStoreGroups(context.Background(), client)
+	err = cw.FetchAndStoreGroups(client)
 	if err != nil {
 		return fmt.Errorf("failed to fetch and store groups: %w", err)
 	}
 	return nil
 }
 
-func (cw *ContainerWrapper) FetchAndStoreGroups(ctx context.Context, client *whatsmeow.Client) error {
-	groups, err := client.GetJoinedGroups(ctx)
+func (cw *AppDatabase) FetchAndStoreGroups(client *whatsmeow.Client) error {
+	cw.mu.Lock()
+	defer cw.mu.Unlock()
+
+	groups, err := client.GetJoinedGroups(cw.ctx)
 	if err != nil {
 		return fmt.Errorf("failed to fetch joined groups: %w", err)
 	}
@@ -96,7 +91,7 @@ type Group struct {
 	ParticipantCount int
 }
 
-func (cw *ContainerWrapper) FetchGroups() ([]Group, error) {
+func (cw *AppDatabase) FetchGroups() ([]Group, error) {
 	rows, err := cw.db.Query(query.SelectAllGroups)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query groups: %w", err)
@@ -120,7 +115,7 @@ func (cw *ContainerWrapper) FetchGroups() ([]Group, error) {
 	return groups, nil
 }
 
-func (cw *ContainerWrapper) FetchGroup(jid string) (*Group, error) {
+func (cw *AppDatabase) FetchGroup(jid string) (*Group, error) {
 	row := cw.db.QueryRow(query.SelectGroupByJID, jid)
 
 	var g Group
@@ -135,6 +130,6 @@ func (cw *ContainerWrapper) FetchGroup(jid string) (*Group, error) {
 	return &g, nil
 }
 
-func (cw *ContainerWrapper) Close() error {
+func (cw *AppDatabase) Close() error {
 	return cw.db.Close()
 }

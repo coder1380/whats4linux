@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"fmt"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
@@ -46,7 +48,7 @@ type MessageContent struct {
 // Api struct
 type Api struct {
 	ctx          context.Context
-	cw           *wa.ContainerWrapper
+	cw           *wa.AppDatabase
 	waClient     *whatsmeow.Client
 	messageStore *store.MessageStore
 }
@@ -62,11 +64,20 @@ func (a *Api) Startup(ctx context.Context) {
 	a.ctx = ctx
 	dbLog := waLog.Stdout("Database", settings.GetLogLevel(), true)
 	var err error
-	a.cw, err = wa.NewContainerWrapper(ctx, "sqlite3", misc.GetSQLiteAddress("session.wa"), dbLog)
+	a.cw, err = wa.NewAppDatabase(ctx)
 	if err != nil {
 		panic(err)
 	}
-	a.waClient = wa.NewClient(ctx, a.cw.GetContainer())
+	db, err := sql.Open("sqlite3", misc.GetSQLiteAddress("session.wa"))
+	if err != nil {
+		panic(err)
+	}
+	container := sqlstore.NewWithDB(db, "sqlite3", dbLog)
+	err = container.Upgrade(ctx)
+	if err != nil {
+		panic(err)
+	}
+	a.waClient = wa.NewClient(ctx, container)
 	a.messageStore, err = store.NewMessageStore()
 	if err != nil {
 		panic(err)
@@ -89,20 +100,16 @@ func (a *Api) Login() error {
 				runtime.EventsEmit(a.ctx, "wa:status", evt.Event)
 			}
 		}
-		// load only once
-		// TODO: add a global flag system for such things
-		// if the initialised is 1 => don't load again else do this
-		a.cw.Initialise(a.ctx, a.waClient)
 	} else {
 		runtime.EventsEmit(a.ctx, "wa:status", "logged_in")
 		fmt.Println("Already logged in, connecting...")
-		a.cw.Initialise(a.ctx, a.waClient)
 		// Already logged in, just connect
 		err = a.waClient.Connect()
 		if err != nil {
 			return err
 		}
 	}
+	a.cw.Initialise(a.waClient)
 	return nil
 }
 
@@ -660,7 +667,7 @@ func (a *Api) SetCustomJS(js string) error {
 }
 
 func (a *Api) Reinitialize() error {
-	return a.cw.Initialise(a.ctx, a.waClient)
+	return a.cw.Initialise(a.waClient)
 }
 
 func (a *Api) SendChatPresence(jid string, cp types.ChatPresence, cpm types.ChatPresenceMedia) error {
