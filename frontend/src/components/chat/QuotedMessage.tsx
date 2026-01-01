@@ -4,19 +4,17 @@ import { useContactStore } from "../../store/useContactStore"
 
 export function QuotedMessage({ contextInfo }: { contextInfo: any }) {
   const [name, setName] = useState<string>("")
-  const getContact = useContactStore(state => state.getContact)
+  const getContactName = useContactStore(state => state.getContactName)
   const quoted = contextInfo.quotedMessage || contextInfo.QuotedMessage
 
   useEffect(() => {
     const participant = contextInfo.participant || contextInfo.Participant
     if (participant) {
-      getContact(participant).then(contact => {
-        if (contact) {
-          setName(contact.full_name || contact.push_name || contact.jid)
-        }
+      getContactName(participant).then((contactName: string) => {
+        if (contactName) setName(contactName)
       })
     }
-  }, [contextInfo, getContact])
+  }, [contextInfo, getContactName])
 
   if (!quoted) return null
 

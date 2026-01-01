@@ -1,4 +1,6 @@
 import { create } from "zustand"
+import { immer } from "zustand/middleware/immer"
+import { useContactStore } from "./useContactStore"
 
 interface MessageStore {
   messages: Record<string, any[]>
@@ -12,102 +14,68 @@ interface MessageStore {
   trimOldMessages: (chatId: string, keepCount: number) => void
 }
 
-export const useMessageStore = create<MessageStore>((set, get) => ({
-  messages: {},
-  activeChatId: null,
+export const useMessageStore = create<MessageStore>()(
+  immer((set, get) => ({
+    messages: {},
+    activeChatId: null,
 
-  setActiveChatId: chatId => {
-    const state = get()
-    const prevChatId = state.activeChatId
+    setActiveChatId: chatId => {
+      const prevChatId = get().activeChatId
 
-    if (prevChatId && prevChatId !== chatId && state.messages[prevChatId]?.length > 20) {
-      const prevMessages = state.messages[prevChatId]
-      set(s => ({
-        messages: {
-          ...s.messages,
-          [prevChatId]: prevMessages.slice(-20),
-        },
-        activeChatId: chatId,
-      }))
-    } else {
-      set({ activeChatId: chatId })
-    }
-  },
+      set(state => {
+        if (prevChatId && prevChatId !== chatId) {
+          // keep only last 10 messages of previous chat (for quick switching)
+          if (state.messages[prevChatId]) {
+            state.messages[prevChatId] = state.messages[prevChatId].slice(-10)
+          }
 
-  setMessages: (chatId, messages) =>
-    set(state => ({
-      messages: {
-        ...state.messages,
-        [chatId]: messages,
-      },
-    })),
-
-  addMessage: (chatId, message) =>
-    set(state => {
-      const existing = state.messages[chatId] || []
-      const newMessages = [...existing, message]
-      return {
-        messages: {
-          ...state.messages,
-          [chatId]: newMessages,
-        },
-      }
-    }),
-
-  prependMessages: (chatId, messages) =>
-    set(state => {
-      const existing = state.messages[chatId] || []
-      const combined = [...messages, ...existing]
-      return {
-        messages: {
-          ...state.messages,
-          [chatId]: combined,
-        },
-      }
-    }),
-
-  // Update or add a message based on its ID (for WhatsMeow events)
-  updateMessage: (chatId, message) =>
-    set(state => {
-      const existing = state.messages[chatId] || []
-      const msgId = message.Info?.ID
-      const idx = existing.findIndex((m: any) => m.Info?.ID === msgId)
-
-      if (idx >= 0) {
-        // Update existing message
-        const updated = [...existing]
-        updated[idx] = message
-        return { messages: { ...state.messages, [chatId]: updated } }
-      } else {
-        // Add new message
-        const newMessages = [...existing, message]
-        return {
-          messages: {
-            ...state.messages,
-            [chatId]: newMessages,
-          },
+          // dispose contact name cache for old chat context
+          useContactStore.getState().disposeCache()
         }
-      }
-    }),
+        state.activeChatId = chatId
+      })
+    },
 
-  // Trim old messages from the top, keeping the most recent ones
-  trimOldMessages: (chatId, keepCount) =>
-    set(state => {
-      const existing = state.messages[chatId] || []
-      if (existing.length <= keepCount) return state
+    setMessages: (chatId, messages) =>
+      set(state => {
+        state.messages[chatId] = messages
+      }),
 
-      return {
-        messages: {
-          ...state.messages,
-          [chatId]: existing.slice(-keepCount),
-        },
-      }
-    }),
+    addMessage: (chatId, message) =>
+      set(state => {
+        if (!state.messages[chatId]) state.messages[chatId] = []
+        state.messages[chatId].push(message)
+      }),
 
-  clearMessages: chatId =>
-    set(state => {
-      const newMessages = { ...state.messages }
-      delete newMessages[chatId]
-      return { messages: newMessages }
-    }),
-}))
+    prependMessages: (chatId, messages) =>
+      set(state => {
+        const existing = state.messages[chatId] || []
+        state.messages[chatId] = [...messages, ...existing]
+      }),
+
+    updateMessage: (chatId, message) =>
+      set(state => {
+        if (!state.messages[chatId]) state.messages[chatId] = []
+
+        const idx = state.messages[chatId].findIndex(m => m.Info?.ID === message.Info?.ID)
+
+        if (idx >= 0) {
+          state.messages[chatId][idx] = message
+        } else {
+          state.messages[chatId].push(message)
+        }
+      }),
+
+    trimOldMessages: (chatId, keepCount) =>
+      set(state => {
+        if (state.messages[chatId] && state.messages[chatId].length > keepCount) {
+          state.messages[chatId] = state.messages[chatId].slice(-keepCount)
+        }
+      }),
+
+    clearMessages: chatId =>
+      set(state => {
+        delete state.messages[chatId]
+      }),
+  })),
+)
