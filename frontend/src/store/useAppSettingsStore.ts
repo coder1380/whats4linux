@@ -98,8 +98,6 @@ export const useAppSettingsStore = create<AppSettingsStore>((set, get) => ({
         loaded: true,
       })
     } catch (err) {
-      console.error("Failed to load settings:", err)
-
       // fallback to defaults
       applyThemeColors(defaultSettings.themeColors)
       useEaseStore.setState({ eases: defaultSettings.eases })
@@ -112,9 +110,7 @@ export const useAppSettingsStore = create<AppSettingsStore>((set, get) => ({
     set(state => {
       const next = { ...state, [key]: value }
 
-      SaveSettings(extractSettings(next)).catch(err => {
-        console.error("Failed to save setting:", err)
-      })
+      SaveSettings(extractSettings(next)).catch(() => {})
 
       return next
     })
@@ -142,7 +138,7 @@ export const useAppSettingsStore = create<AppSettingsStore>((set, get) => ({
       applyThemeColors(next.themeColors)
 
       // ⭐ persist
-      SaveSettings(extractSettings(next)).catch(console.error)
+      SaveSettings(extractSettings(next)).catch(() => {})
 
       return next
     })
