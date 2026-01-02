@@ -612,7 +612,7 @@ func (a *Api) mainEventHandler(evt any) {
 	switch v := evt.(type) {
 	case *events.Message:
 		a.messageStore.ProcessMessageEvent(v)
-		
+
 		// Automatically cache images and stickers when they arrive
 		go func() {
 			if v.Message.GetImageMessage() != nil || v.Message.GetStickerMessage() != nil {
@@ -620,7 +620,7 @@ func (a *Api) mainEventHandler(evt any) {
 				var err error
 				var mime string
 				var width, height int
-				
+
 				if v.Message.GetImageMessage() != nil {
 					data, err = a.waClient.Download(a.ctx, v.Message.GetImageMessage())
 					if err == nil {
@@ -642,7 +642,7 @@ func (a *Api) mainEventHandler(evt any) {
 						height = int(v.Message.GetStickerMessage().GetHeight())
 					}
 				}
-				
+
 				if err == nil && data != nil {
 					_, cacheErr := a.imageCache.SaveImage(v.Info.ID, data, mime, width, height)
 					if cacheErr != nil {
@@ -651,7 +651,7 @@ func (a *Api) mainEventHandler(evt any) {
 				}
 			}
 		}()
-		
+
 		// Emit the message data directly so frontend doesn't need to make an API call
 		msg := store.Message{
 			Info:    v.Info,
@@ -783,11 +783,16 @@ func (a *Api) GetCachedImages(messageIDs []string) (map[string]string, error) {
 // getFileExtension returns file extension for mime type
 func getFileExtension(mime string) string {
 	switch mime {
-	case "image/png": return ".png"
-	case "image/gif": return ".gif"
-	case "image/webp": return ".webp"
-	case "image/jpeg", "image/jpg": return ".jpg"
-	default: return ".jpg"
+	case "image/png":
+		return ".png"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	case "image/jpeg", "image/jpg":
+		return ".jpg"
+	default:
+		return ".jpg"
 	}
 }
 
@@ -808,7 +813,7 @@ func (a *Api) DownloadImageToFile(messageID string) error {
 			DefaultDirectory: downloadsDir,
 			DefaultFilename:  fileName,
 			Title:            "File already exists. Save as...",
-			Filters: []runtime.FileFilter{{DisplayName: "Image Files", Pattern: "*" + getFileExtension(mime)}},
+			Filters:          []runtime.FileFilter{{DisplayName: "Image Files", Pattern: "*" + getFileExtension(mime)}},
 		}); err != nil || filePath == "" {
 			return err
 		}

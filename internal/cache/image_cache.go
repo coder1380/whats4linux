@@ -15,10 +15,10 @@ import (
 )
 
 type ImageCache struct {
-	db         *sql.DB
-	imagesDir  string
-	getStmt    *sql.Stmt // Prepared statement for single image retrieval
-	saveStmt   *sql.Stmt // Prepared statement for saving images
+	db        *sql.DB
+	imagesDir string
+	getStmt   *sql.Stmt // Prepared statement for single image retrieval
+	saveStmt  *sql.Stmt // Prepared statement for saving images
 }
 
 type ImageMeta struct {
@@ -79,6 +79,7 @@ func NewImageCache() (*ImageCache, error) {
 
 	return ic, nil
 }
+
 // SaveImage saves an image to cache and creates an index entry
 func (ic *ImageCache) SaveImage(messageID string, data []byte, mime string, width, height int) (string, error) {
 	h := sha256.Sum256(data)

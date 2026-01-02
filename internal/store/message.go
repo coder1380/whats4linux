@@ -244,27 +244,27 @@ func (ms *MessageStore) GetMessageByID(messageID string) *Message {
 			}
 		}
 	}
-	
+
 	// Query database
 	var chat, msgID string
 	var ts int64
 	var minf, raw []byte
-	
+
 	err := ms.db.QueryRow(`SELECT chat, message_id, timestamp, msg_info, raw_message FROM messages WHERE message_id = ? LIMIT 1`, messageID).Scan(&chat, &msgID, &ts, &minf, &raw)
 	if err != nil {
 		return nil
 	}
-	
+
 	var messageInfo types.MessageInfo
 	if err := gobDecode(minf, &messageInfo); err != nil {
 		return nil
 	}
-	
+
 	waMsg, err := unmarshalMessageContent(raw)
 	if err != nil {
 		return nil
 	}
-	
+
 	return &Message{Info: messageInfo, Content: waMsg}
 }
 
