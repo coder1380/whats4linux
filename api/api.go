@@ -5,6 +5,9 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"fmt"
+	"io"
+	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -282,17 +285,14 @@ func (a *Api) GetChatList() ([]ChatElement, error) {
 			}
 		}
 
-		// url, ok := tmpProfileCache.Get(cm.JID.User)
-		// if !ok {
-		// 	pic, _ := a.waClient.GetProfilePictureInfo(a.ctx, cm.JID, &whatsmeow.GetProfilePictureParams{
-		// 		Preview: true,
-		// 	})
-		// 	if pic != nil {
-		// 		url = pic.URL
-		// 	}
-		// 	tmpProfileCache.Set(cm.JID.User, url)
-		// }
-		// fc.AvatarURL = url
+		// Get cached avatar for all chats (both groups and contacts)
+		log.Printf("Fetching avatar for: %s (server: %s)", cm.JID.String(), cm.JID.Server)
+		if avatarURL, err := a.GetCachedAvatar(cm.JID.String()); err == nil && avatarURL != "" {
+			fc.AvatarURL = avatarURL
+			log.Printf("SUCCESS: Set avatar URL for %s: %s", cm.JID.String(), avatarURL)
+		} else {
+			log.Printf("FAILED: No avatar found for %s: %v", cm.JID.String(), err)
+		}
 
 		// todo: remove this later
 		fc.FullName = fmt.Sprintf("%s (%s)", fc.FullName, cm.JID.String())
@@ -777,6 +777,81 @@ func (a *Api) GetCachedImages(messageIDs []string) (map[string]string, error) {
 	}
 
 	return result, nil
+}
+
+// GetCachedAvatar retrieves or downloads and caches an avatar for a JID
+func (a *Api) GetCachedAvatar(jid string) (string, error) {
+	log.Printf("[GetCachedAvatar] Starting for JID: %s", jid)
+	
+	// Try to get cached avatar data first
+	data, mime, err := a.imageCache.ReadAvatarByJID(jid)
+	if err == nil {
+		avatarDataURL := fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(data))
+		log.Printf("[GetCachedAvatar] Found cached avatar for %s: data URL generated", jid)
+		return avatarDataURL, nil
+	}
+	log.Printf("[GetCachedAvatar] No cached avatar found for %s, downloading: %v", jid, err)
+
+	// Avatar not in cache, download and cache it
+	jidParsed, err := types.ParseJID(jid)
+	if err != nil {
+		return "", fmt.Errorf("invalid JID: %w", err)
+	}
+
+	// Get profile picture info
+	pic, err := a.waClient.GetProfilePictureInfo(a.ctx, jidParsed, &whatsmeow.GetProfilePictureParams{
+		Preview: false, // Get full resolution
+	})
+	if err != nil || pic == nil {
+		return "", nil // No avatar available
+	}
+
+	// Download the avatar using standard HTTP since profile picture URLs are public
+	resp, err := http.Get(pic.URL)
+	if err != nil {
+		return "", fmt.Errorf("failed to download avatar: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to download avatar: status %d", resp.StatusCode)
+	}
+
+	// Read the image data
+	data, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read avatar data: %w", err)
+	}
+
+	// Determine MIME type from response header or image data
+	mime = resp.Header.Get("Content-Type")
+	if mime == "" {
+		// Fallback to detection by file signature
+		mime = "image/jpeg" // Default fallback
+		if len(data) > 3 {
+			switch {
+			case data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47:
+				mime = "image/png"
+			case data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46:
+				mime = "image/gif"
+			case data[0] == 0x52 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x46:
+				mime = "image/webp"
+			}
+		}
+	}
+
+	// Cache the avatar
+	hash, err := a.imageCache.SaveAvatar(jid, data, mime)
+	if err != nil {
+		log.Printf("[GetCachedAvatar] Failed to cache avatar for %s: %v", jid, err)
+		return "", fmt.Errorf("failed to cache avatar: %w", err)
+	}
+	log.Printf("[GetCachedAvatar] Successfully cached avatar for %s with hash: %s", jid, hash)
+
+	// Return data URL like message images do
+	avatarDataURL := fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(data))
+	log.Printf("[GetCachedAvatar] Returning data URL for %s", jid)
+	return avatarDataURL, nil
 }
 
 // getFileExtension returns file extension for mime type

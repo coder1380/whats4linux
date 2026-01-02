@@ -200,6 +200,24 @@ func (ic *ImageCache) ReadImageByMessageID(messageID string) ([]byte, string, er
 	return data, meta.Mime, nil
 }
 
+// SaveAvatar saves an avatar image to cache using JID as the key
+func (ic *ImageCache) SaveAvatar(jid string, data []byte, mime string) (string, error) {
+	avatarKey := "avatar_" + jid
+	return ic.SaveImage(avatarKey, data, mime, 0, 0)
+}
+
+// GetAvatarFilePath returns the file path for a cached avatar by JID
+func (ic *ImageCache) GetAvatarFilePath(jid string) (string, error) {
+	avatarKey := "avatar_" + jid
+	return ic.GetImageFilePath(avatarKey)
+}
+
+// ReadAvatarByJID reads an avatar image by JID
+func (ic *ImageCache) ReadAvatarByJID(jid string) ([]byte, string, error) {
+	avatarKey := "avatar_" + jid
+	return ic.ReadImageByMessageID(avatarKey)
+}
+
 // Close closes the database connection and prepared statements
 func (ic *ImageCache) Close() error {
 	if ic.getStmt != nil {
