@@ -656,6 +656,10 @@ func (a *Api) mainEventHandler(evt any) {
 		// groups in the app until a manual reinitialize is done). To avoid that,
 		// wait here until logged in.
 		a.cw.Initialise(a.waClient)
+		a.waClient.SendPresence(a.ctx, types.PresenceAvailable)
+	case *events.Disconnected:
+		a.waClient.SendPresence(a.ctx, types.PresenceUnavailable)
+
 	default:
 		// Ignore other events for now
 	}
