@@ -676,6 +676,12 @@ func (a *Api) mainEventHandler(evt any) {
 			"messageText": messageText,
 			"timestamp":   v.Info.Timestamp.Unix(),
 		})
+
+	case *events.Picture:
+		go a.GetCachedAvatar(v.JID.String(), true)
+
+		runtime.EventsEmit(a.ctx, "wa:picture_update", v.JID.String())
+
 	case *events.Connected:
 		// For new logins, there might be a problem where the whatsmeow client
 		// gets a 515 code which gets resolved internally by auto-reconnecting
@@ -688,7 +694,7 @@ func (a *Api) mainEventHandler(evt any) {
 		a.waClient.SendPresence(a.ctx, types.PresenceAvailable)
 	case *events.Disconnected:
 		a.waClient.SendPresence(a.ctx, types.PresenceUnavailable)
-
+	
 	default:
 		// Ignore other events for now
 	}
@@ -809,11 +815,12 @@ func (a *Api) GetCachedImages(messageIDs []string) (map[string]string, error) {
 }
 
 // GetCachedAvatar retrieves or downloads and caches an avatar for a JID
-func (a *Api) GetCachedAvatar(jid string) (string, error) {
+func (a *Api) GetCachedAvatar(jid string, recache bool) (string, error) {
 
 	// Try to get cached avatar data first
 	data, mime, err := a.imageCache.ReadAvatarByJID(jid)
-	if err == nil {
+
+	if err == nil && !recache {
 		avatarDataURL := fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(data))
 		return avatarDataURL, nil
 	}
@@ -829,6 +836,9 @@ func (a *Api) GetCachedAvatar(jid string) (string, error) {
 		Preview: false, // Get full resolution
 	})
 	if err != nil || pic == nil {
+		if recache {
+			go a.imageCache.DeleteAvatar(jid)
+		}
 		return "", nil // No avatar available
 	}
 
@@ -875,6 +885,7 @@ func (a *Api) GetCachedAvatar(jid string) (string, error) {
 
 	// Return data URL like message images do
 	avatarDataURL := fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(data))
+	
 	return avatarDataURL, nil
 }
 
