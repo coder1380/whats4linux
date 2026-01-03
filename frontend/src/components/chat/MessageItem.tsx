@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react"
 import { store } from "../../../wailsjs/go/models"
 import { DownloadImageToFile, GetContact } from "../../../wailsjs/go/api/Api"
-import { parseWhatsAppMarkdown } from "../../utils/markdown"
+// Temporarily disable markdown parsing
+// import { parseWhatsAppMarkdown } from "../../utils/markdown"
 import { MediaContent } from "./MediaContent"
 import { QuotedMessage } from "./QuotedMessage"
 import { ImagePreview } from "./ImagePreview"
@@ -26,6 +27,14 @@ const formatSize = (bytes: number) => {
 
 export function MessageItem({ message, chatId, sentMediaCache, onReply }: MessageItemProps) {
   const isFromMe = message.Info.IsFromMe
+  // Debug: log every render and also when the message updates or unmounts
+  // console.log(`[MessageItem] render id=${message.Info.ID} fromMe=${isFromMe} chat=${chatId}`)
+  useEffect(() => {
+    // console.log(`[MessageItem] message updated id=${message.Info.ID}`, message)
+    return () => {
+      // console.log(`[MessageItem] cleanup/unmount id=${message.Info.ID}`)
+    }
+  }, [message.Info.ID, message.Info.Timestamp])
   const content = message.Content
   const isSticker = !!content?.stickerMessage
   const isPending = (message as any).isPending || false
@@ -104,9 +113,9 @@ export function MessageItem({ message, chatId, sentMediaCache, onReply }: Messag
 
   const renderContent = () => {
     if (!content) return <span className="italic opacity-50">Empty Message</span>
-    else if (content.conversation) return parseWhatsAppMarkdown(content.conversation)
+    else if (content.conversation) return <>{content.conversation}</>
     else if (content.extendedTextMessage?.text)
-      return parseWhatsAppMarkdown(content.extendedTextMessage.text)
+      return <>{content.extendedTextMessage.text}</>
     else if (content.imageMessage)
       return (
         <div className="flex flex-col">
@@ -119,7 +128,7 @@ export function MessageItem({ message, chatId, sentMediaCache, onReply }: Messag
             onDownload={handleImageDownload}
           />
           {content.imageMessage.caption && (
-            <div className="mt-1">{parseWhatsAppMarkdown(content.imageMessage.caption)}</div>
+            <div className="mt-1">{content.imageMessage.caption}</div>
           )}
         </div>
       )
@@ -133,7 +142,7 @@ export function MessageItem({ message, chatId, sentMediaCache, onReply }: Messag
             sentMediaCache={sentMediaCache}
           />
           {content.videoMessage.caption && (
-            <div className="mt-1">{parseWhatsAppMarkdown(content.videoMessage.caption)}</div>
+            <div className="mt-1">{content.videoMessage.caption}</div>
           )}
         </div>
       )
@@ -184,7 +193,7 @@ export function MessageItem({ message, chatId, sentMediaCache, onReply }: Messag
               </svg>
             </button>
           </div>
-          {doc.caption && <div className="mt-1">{parseWhatsAppMarkdown(doc.caption)}</div>}
+          {doc.caption && <div className="mt-1">{doc.caption}</div>}
         </div>
       )
     } else if (content.senderKeyDistributionMessage) {

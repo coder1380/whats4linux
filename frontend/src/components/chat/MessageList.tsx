@@ -1,5 +1,4 @@
-import { Virtuoso, type VirtuosoHandle } from "react-virtuoso"
-import { forwardRef, useImperativeHandle, useRef, useCallback, memo } from "react"
+import { forwardRef, useImperativeHandle, useRef, useCallback, memo, useEffect } from "react"
 import { store } from "../../../wailsjs/go/models"
 import { MessageItem } from "./MessageItem"
 
@@ -41,7 +40,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
   },
   ref,
 ) {
-  const virtuosoRef = useRef<VirtuosoHandle>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
   const prefetchTriggeredRef = useRef(false)
 
   const renderItem = useCallback(
@@ -60,15 +59,17 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
 
   const scrollToBottom = useCallback(
     (behavior: "auto" | "smooth" = "smooth") => {
-      if (virtuosoRef.current && messages.length > 0) {
-        virtuosoRef.current.scrollToIndex({
-          index: messages.length - 1,
-          align: "end",
-          behavior,
-        })
+      const el = containerRef.current
+      if (el) {
+        const top = el.scrollHeight - el.clientHeight
+        try {
+          el.scrollTo({ top, behavior })
+        } catch {
+          el.scrollTop = top
+        }
       }
     },
-    [messages.length],
+    [],
   )
 
   useImperativeHandle(ref, () => ({ scrollToBottom }))
@@ -80,30 +81,48 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
     }
   }, [isLoading, hasMore, onLoadMore])
 
+  useEffect(() => {
+    // Scroll to bottom on mount
+    if (containerRef.current && messages.length > 0) {
+      const el = containerRef.current
+      el.scrollTop = el.scrollHeight
+    }
+  }, [])
+
+  const onScroll = useCallback(
+    (e: React.UIEvent<HTMLDivElement>) => {
+      const el = e.currentTarget
+      if (el.scrollTop <= 50) {
+        handleStartReached()
+      }
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 5
+      onAtBottomChange?.(atBottom)
+    },
+    [handleStartReached, onAtBottomChange],
+  )
+
   return (
-    <Virtuoso
-      ref={virtuosoRef}
-      data={messages}
-      firstItemIndex={firstItemIndex}
-      initialTopMostItemIndex={Math.max(0, messages.length - 1)}
-      startReached={handleStartReached}
-      followOutput="smooth"
-      alignToBottom
-      rangeChanged={onRangeChanged}
-      atBottomStateChange={onAtBottomChange}
-      increaseViewportBy={{ top: 300, bottom: 0 }}
-      className="flex-1 overflow-y-auto bg-repeat virtuoso-scroller"
+    <div
+      ref={containerRef}
+      onScroll={onScroll}
+      className="h-full overflow-y-auto bg-repeat virtuoso-scroller"
       style={{ backgroundImage: "url('/assets/images/bg-chat-tile-dark.png')" }}
-      itemContent={renderItem}
-      components={{
-        Header: () => (
-          <div className="flex justify-center py-4">
-            {isLoading ? (
-              <div className="animate-spin h-5 w-5 border-2 border-green-500 rounded-full border-t-transparent" />
-            ) : null}
-          </div>
-        ),
-      }}
-    />
+    >
+      <div className="flex justify-center py-4">
+        {isLoading ? (
+          <div className="animate-spin h-5 w-5 border-2 border-green-500 rounded-full border-t-transparent" />
+        ) : null}
+      </div>
+      {messages.map((msg) => (
+        <div key={msg.Info.ID} className="px-4 py-1">
+          <MemoizedMessageItem
+            message={msg}
+            chatId={chatId}
+            sentMediaCache={sentMediaCache}
+            onReply={onReply}
+          />
+        </div>
+      ))}
+    </div>
   )
 })
