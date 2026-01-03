@@ -278,19 +278,22 @@ export function ChatListScreen({ onOpenSettings }: ChatListScreenProps) {
     })
   }, [])
 
-  const loadAvatars = useCallback(async (chatItems: ChatItem[]) => {
-    for (const chat of chatItems) {
-      if (chat.avatar) continue // Already has avatar
-      try {
-        const avatarURL = await GetCachedAvatar(chat.id)
-        if (avatarURL && mountedRef.current) {
-          updateSingleChat(chat.id, { avatar: avatarURL })
+  const loadAvatars = useCallback(
+    async (chatItems: ChatItem[]) => {
+      for (const chat of chatItems) {
+        if (chat.avatar) continue // Already has avatar
+        try {
+          const avatarURL = await GetCachedAvatar(chat.id)
+          if (avatarURL && mountedRef.current) {
+            updateSingleChat(chat.id, { avatar: avatarURL })
+          }
+        } catch (err) {
+          console.error(`Error loading avatar for ${chat.id}:`, err)
         }
-      } catch (err) {
-        console.error(`Error loading avatar for ${chat.id}:`, err)
       }
-    }
-  }, [updateSingleChat])
+    },
+    [updateSingleChat],
+  )
 
   const fetchChats = useCallback(async () => {
     if (isFetchingRef.current) return
@@ -425,6 +428,4 @@ export function ChatListScreen({ onOpenSettings }: ChatListScreenProps) {
       </div>
     </div>
   )
-  }
-  
-  
+}
