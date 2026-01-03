@@ -2,12 +2,14 @@ import { Virtuoso, type VirtuosoHandle } from "react-virtuoso"
 import { forwardRef, useImperativeHandle, useRef, useCallback, memo } from "react"
 import { store } from "../../../wailsjs/go/models"
 import { MessageItem } from "./MessageItem"
+import clsx from "clsx"
 
 interface MessageListProps {
   chatId: string
   messages: store.Message[]
   sentMediaCache: React.MutableRefObject<Map<string, string>>
   onReply?: (message: store.Message) => void
+  onQuotedClick?: (messageId: string) => void
   onLoadMore?: () => void
   onPrefetch?: () => void
   onTrimOldMessages?: () => void
@@ -16,10 +18,12 @@ interface MessageListProps {
   firstItemIndex: number
   isLoading?: boolean
   hasMore?: boolean
+  highlightedMessageId?: string | null
 }
 
 export interface MessageListHandle {
   scrollToBottom: (behavior?: "auto" | "smooth") => void
+  scrollToMessage: (messageId: string) => void
 }
 
 const MemoizedMessageItem = memo(MessageItem)
@@ -30,6 +34,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
     messages,
     sentMediaCache,
     onReply,
+    onQuotedClick,
     onLoadMore,
     onPrefetch,
     onTrimOldMessages,
@@ -38,6 +43,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
     firstItemIndex,
     isLoading,
     hasMore,
+    highlightedMessageId,
   },
   ref,
 ) {
@@ -45,17 +51,25 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
   const prefetchTriggeredRef = useRef(false)
 
   const renderItem = useCallback(
-    (_: number, msg: store.Message) => (
-      <div className="px-4 py-1">
-        <MemoizedMessageItem
-          message={msg}
-          chatId={chatId}
-          sentMediaCache={sentMediaCache}
-          onReply={onReply}
-        />
-      </div>
-    ),
-    [chatId, onReply, sentMediaCache],
+    (_: number, msg: store.Message) => {
+      const isHighlighted = highlightedMessageId === msg.Info?.ID
+      return (
+        <div
+          className={clsx("px-4 py-1 transition-colors duration-500", {
+            "bg-green-200/50 dark:bg-green-500/30": isHighlighted,
+          })}
+        >
+          <MemoizedMessageItem
+            message={msg}
+            chatId={chatId}
+            sentMediaCache={sentMediaCache}
+            onReply={onReply}
+            onQuotedClick={onQuotedClick}
+          />
+        </div>
+      )
+    },
+    [chatId, onReply, onQuotedClick, sentMediaCache, highlightedMessageId],
   )
 
   const scrollToBottom = useCallback(
@@ -71,7 +85,23 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
     [messages.length],
   )
 
-  useImperativeHandle(ref, () => ({ scrollToBottom }))
+  const scrollToMessage = useCallback(
+    (messageId: string) => {
+      if (!virtuosoRef.current) return
+
+      const messageIndex = messages.findIndex(m => m.Info?.ID === messageId)
+      if (messageIndex >= 0) {
+        virtuosoRef.current.scrollToIndex({
+          index: messageIndex,
+          align: "center",
+          behavior: "smooth",
+        })
+      }
+    },
+    [messages],
+  )
+
+  useImperativeHandle(ref, () => ({ scrollToBottom, scrollToMessage }))
 
   const handleStartReached = useCallback(() => {
     if (!isLoading && hasMore && onLoadMore) {

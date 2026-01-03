@@ -2,7 +2,13 @@ import { useEffect, useState } from "react"
 import { parseWhatsAppMarkdown } from "../../utils/markdown"
 import { useContactStore } from "../../store/useContactStore"
 
-export function QuotedMessage({ contextInfo }: { contextInfo: any }) {
+export function QuotedMessage({
+  contextInfo,
+  onQuotedClick,
+}: {
+  contextInfo: any
+  onQuotedClick?: (messageId: string) => void
+}) {
   const [name, setName] = useState<string>("")
   const getContactName = useContactStore(state => state.getContactName)
   const quoted = contextInfo.quotedMessage || contextInfo.QuotedMessage
@@ -30,8 +36,18 @@ export function QuotedMessage({ contextInfo }: { contextInfo: any }) {
     return "Message"
   }
 
+  const handleClick = () => {
+    const stanzaId = contextInfo.stanzaID
+    if (stanzaId && onQuotedClick) {
+      onQuotedClick(stanzaId)
+    }
+  }
+
   return (
-    <div className="bg-black/5 dark:bg-white/10 rounded-md p-2 mb-2 border-l-4 border-green-500 text-xs">
+    <div
+      className="bg-black/5 dark:bg-white/10 rounded-md p-2 mb-2 border-l-4 border-green-500 text-xs cursor-pointer hover:bg-black/10 dark:hover:bg-white/15 transition-colors"
+      onClick={handleClick}
+    >
       <div className="font-bold text-green-600 mb-1">{name}</div>
       <div className="line-clamp-2 opacity-70">{getText()}</div>
     </div>

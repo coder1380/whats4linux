@@ -47,6 +47,7 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
   const [initialLoad, setInitialLoad] = useState(true)
   const [isReady, setIsReady] = useState(false)
   const [isAtBottom, setIsAtBottom] = useState(true)
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null)
 
   const messageListRef = useRef<MessageListHandle>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -69,6 +70,15 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
     requestAnimationFrame(() => {
       messageListRef.current?.scrollToBottom(instant ? "auto" : "smooth")
     })
+  }, [])
+
+  const handleQuotedClick = useCallback((messageId: string) => {
+    messageListRef.current?.scrollToMessage(messageId)
+    setHighlightedMessageId(messageId)
+
+    setTimeout(() => {
+      setHighlightedMessageId(null)
+    }, 500)
   }, [])
 
   const handleAtBottomChange = useCallback((atBottom: boolean) => {
@@ -360,11 +370,13 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
             messages={chatMessages}
             sentMediaCache={sentMediaCache}
             onReply={setReplyingTo}
+            onQuotedClick={handleQuotedClick}
             onLoadMore={loadMoreMessages}
             onAtBottomChange={handleAtBottomChange}
             firstItemIndex={firstItemIndex}
             isLoading={isLoadingMore}
             hasMore={hasMore}
+            highlightedMessageId={highlightedMessageId}
           />
         </div>
       </div>
