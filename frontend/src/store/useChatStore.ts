@@ -34,12 +34,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   setChats: chats => {
     const newChatsById = new Map<string, ChatItem>()
     const newChatIds: string[] = []
-    
+
     for (const chat of chats) {
       newChatsById.set(chat.id, chat)
       newChatIds.push(chat.id)
     }
-    
+
     set({ chatsById: newChatsById, chatIds: newChatIds })
   },
 
@@ -57,10 +57,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set(state => {
       const existingChat = state.chatsById.get(chatId)
       if (!existingChat) return state
-      
+
       const newChatsById = new Map(state.chatsById)
       newChatsById.set(chatId, { ...existingChat, ...updates })
-      
+
       return { chatsById: newChatsById }
     }),
 
@@ -68,17 +68,17 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set(state => {
       const existingChat = state.chatsById.get(chatId)
       if (!existingChat) return state
-      
+
       const newChatsById = new Map(state.chatsById)
       newChatsById.set(chatId, {
         ...existingChat,
         subtitle: message,
         timestamp: timestamp || Date.now(),
       })
-      
+
       // Move this chat to the top of the list
       const newChatIds = [chatId, ...state.chatIds.filter(id => id !== chatId)]
-      
+
       return { chatsById: newChatsById, chatIds: newChatIds }
     }),
 
@@ -86,13 +86,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set(state => {
       const existingChat = state.chatsById.get(chatId)
       if (!existingChat) return state
-      
+
       const newChatsById = new Map(state.chatsById)
       newChatsById.set(chatId, {
         ...existingChat,
         unreadCount: (existingChat.unreadCount || 0) + 1,
       })
-      
+
       return { chatsById: newChatsById }
     }),
 
@@ -100,10 +100,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set(state => {
       const existingChat = state.chatsById.get(chatId)
       if (!existingChat) return state
-      
+
       const newChatsById = new Map(state.chatsById)
       newChatsById.set(chatId, { ...existingChat, unreadCount: 0 })
-      
+
       return { chatsById: newChatsById }
     }),
 
@@ -112,12 +112,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
 // Selector hook to get a single chat by ID - only re-renders when that specific chat changes
 export const useChatById = (chatId: string) => {
-  return useChatStore(
-    useCallback(
-      (state: ChatStore) => state.chatsById.get(chatId),
-      [chatId]
-    )
-  )
+  return useChatStore(useCallback((state: ChatStore) => state.chatsById.get(chatId), [chatId]))
 }
 
 // Selector hook to get only chat IDs (for list rendering) - doesn't re-render on chat content changes
@@ -131,12 +126,12 @@ export const useFilteredChatIds = () => {
     useShallow((state: ChatStore) => {
       const { chatIds, chatsById, searchTerm } = state
       if (!searchTerm) return chatIds
-      
+
       return chatIds.filter(id => {
         const chat = chatsById.get(id)
         return chat?.name.toLowerCase().includes(searchTerm.toLowerCase())
       })
-    })
+    }),
   )
 }
 
@@ -145,6 +140,6 @@ export const useChatsArray = () => {
   return useChatStore(
     useShallow((state: ChatStore) => {
       return state.chatIds.map(id => state.chatsById.get(id)!).filter(Boolean)
-    })
+    }),
   )
 }

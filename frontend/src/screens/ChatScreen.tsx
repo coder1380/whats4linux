@@ -121,12 +121,14 @@ const SearchBar = ({ value, onChange }: SearchBarProps) => (
 )
 
 // Memoized ChatAvatar - only re-renders if avatar changes
-const MemoizedChatAvatar = memo(({ avatar, type, name }: { avatar?: string; type: "group" | "contact"; name: string }) => {
-  if (avatar) {
-    return <img src={avatar} alt={name} className="w-full h-full object-cover" />
-  }
-  return type === "group" ? <GroupIcon /> : <UserAvatar />
-})
+const MemoizedChatAvatar = memo(
+  ({ avatar, type, name }: { avatar?: string; type: "group" | "contact"; name: string }) => {
+    if (avatar) {
+      return <img src={avatar} alt={name} className="w-full h-full object-cover" />
+    }
+    return type === "group" ? <GroupIcon /> : <UserAvatar />
+  },
+)
 
 MemoizedChatAvatar.displayName = "MemoizedChatAvatar"
 
@@ -178,16 +180,10 @@ interface ChatListItemProps {
 const ChatListItem = memo(({ chatId, isSelected, onSelect }: ChatListItemProps) => {
   // This hook only triggers re-render when THIS specific chat changes
   const chat = useChatById(chatId)
-  
+
   if (!chat) return null
-  
-  return (
-    <ChatListItemContent
-      chat={chat}
-      isSelected={isSelected}
-      onSelect={onSelect}
-    />
-  )
+
+  return <ChatListItemContent chat={chat} isSelected={isSelected} onSelect={onSelect} />
 })
 
 ChatListItem.displayName = "ChatListItem"
@@ -245,7 +241,7 @@ export function ChatListScreen({ onOpenSettings }: ChatListScreenProps) {
   const clearUnreadCount = useChatStore(state => state.clearUnreadCount)
   const updateChatLastMessage = useChatStore(state => state.updateChatLastMessage)
   const getChat = useChatStore(state => state.getChat)
-  
+
   // Get filtered chat IDs - only re-renders when IDs or search changes, not on message/timestamp updates
   const filteredChatIds = useFilteredChatIds()
   const totalChats = useChatStore(state => state.chatIds.length)
@@ -321,26 +317,29 @@ export function ChatListScreen({ onOpenSettings }: ChatListScreenProps) {
 
     // Initial fetch
     const timeout = setTimeout(fetchChats, 100)
-    
+
     // Listen for new messages - update only the specific chat
-    const unsubNewMessage = EventsOn("wa:new_message", (data: { chatId: string; messageText: string; timestamp: number }) => {
-      if (!initialFetchDoneRef.current) {
-        // If we haven't done initial fetch, do a full fetch
-        setTimeout(fetchChats, 500)
-        return
-      }
-      
-      // Check if we already have this chat in our list
-      const existingChat = getChat(data.chatId)
-      if (existingChat) {
-        // Update only this specific chat - no full re-fetch needed!
-        updateChatLastMessage(data.chatId, data.messageText, data.timestamp)
-      } else {
-        // New chat we don't have - need to fetch to get avatar/name
-        setTimeout(fetchChats, 500)
-      }
-    })
-    
+    const unsubNewMessage = EventsOn(
+      "wa:new_message",
+      (data: { chatId: string; messageText: string; timestamp: number }) => {
+        if (!initialFetchDoneRef.current) {
+          // If we haven't done initial fetch, do a full fetch
+          setTimeout(fetchChats, 500)
+          return
+        }
+
+        // Check if we already have this chat in our list
+        const existingChat = getChat(data.chatId)
+        if (existingChat) {
+          // Update only this specific chat - no full re-fetch needed!
+          updateChatLastMessage(data.chatId, data.messageText, data.timestamp)
+        } else {
+          // New chat we don't have - need to fetch to get avatar/name
+          setTimeout(fetchChats, 500)
+        }
+      },
+    )
+
     // Fallback: listen for generic updates that require full refresh
     const unsubRefresh = EventsOn("wa:chat_list_refresh", () => {
       setTimeout(fetchChats, 500)
