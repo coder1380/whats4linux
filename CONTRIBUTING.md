@@ -66,6 +66,7 @@ This will:
 --- 
 ## 🧠 Project Structure Overview
 
+```
 |
 ├── api/ # Go APIs exposed to the frontend via Wails
 ├── internal/ # Core application logic (storage, sync, utils)
@@ -73,6 +74,7 @@ This will:
 ├── build/ # Build artifacts and scripts
 ├── main.go # Application entry point
 └── wails.json # Wails configuration
+```
 
 
 ### Structure Guidelines
