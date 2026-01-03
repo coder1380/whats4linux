@@ -30,6 +30,30 @@ type MessageStore struct {
 	mCache      misc.VMap[string, uint8]
 }
 
+// ExtractMessageText extracts a text representation from a WhatsApp message
+func ExtractMessageText(msg *waE2E.Message) string {
+	if msg.GetConversation() != "" {
+		return msg.GetConversation()
+	} else if msg.GetExtendedTextMessage() != nil {
+		return msg.GetExtendedTextMessage().GetText()
+	} else {
+		switch {
+		case msg.GetImageMessage() != nil:
+			return "image"
+		case msg.GetVideoMessage() != nil:
+			return "video"
+		case msg.GetAudioMessage() != nil:
+			return "audio"
+		case msg.GetDocumentMessage() != nil:
+			return "document"
+		case msg.GetStickerMessage() != nil:
+			return "sticker"
+		default:
+			return "message"
+		}
+	}
+}
+
 func NewMessageStore() (*MessageStore, error) {
 	db, err := sql.Open("sqlite3", misc.GetSQLiteAddress("mdb"))
 	if err != nil {
@@ -72,27 +96,7 @@ func (ms *MessageStore) ProcessMessageEvent(msg *events.Message) {
 	}
 
 	// Update chatListMap with the new latest message
-	var messageText string
-	if m.Content.GetConversation() != "" {
-		messageText = m.Content.GetConversation()
-	} else if m.Content.GetExtendedTextMessage() != nil {
-		messageText = m.Content.GetExtendedTextMessage().GetText()
-	} else {
-		switch {
-		case m.Content.GetImageMessage() != nil:
-			messageText = "image"
-		case m.Content.GetVideoMessage() != nil:
-			messageText = "video"
-		case m.Content.GetAudioMessage() != nil:
-			messageText = "audio"
-		case m.Content.GetDocumentMessage() != nil:
-			messageText = "document"
-		case m.Content.GetStickerMessage() != nil:
-			messageText = "sticker"
-		default:
-			messageText = "unsupported message type"
-		}
-	}
+	messageText := ExtractMessageText(m.Content)
 	chatMsg := ChatMessage{
 		JID:         msg.Info.Chat,
 		MessageText: messageText,
@@ -287,26 +291,7 @@ func (ms *MessageStore) GetChatList() []ChatMessage {
 		}
 
 		var messageText string
-		if waMsg.GetConversation() != "" {
-			messageText = waMsg.GetConversation()
-		} else if waMsg.GetExtendedTextMessage() != nil {
-			messageText = waMsg.GetExtendedTextMessage().GetText()
-		} else {
-			switch {
-			case waMsg.GetImageMessage() != nil:
-				messageText = "image"
-			case waMsg.GetVideoMessage() != nil:
-				messageText = "video"
-			case waMsg.GetAudioMessage() != nil:
-				messageText = "audio"
-			case waMsg.GetDocumentMessage() != nil:
-				messageText = "document"
-			case waMsg.GetStickerMessage() != nil:
-				messageText = "sticker"
-			default:
-				messageText = "unsupported message type"
-			}
-		}
+		messageText = ExtractMessageText(waMsg)
 
 		chatMsg := ChatMessage{
 			JID:         chatJID,

@@ -286,15 +286,6 @@ func (a *Api) GetChatList() ([]ChatElement, error) {
 			}
 		}
 
-		// Get cached avatar for all chats (both groups and contacts)
-		// Avatar loading is now handled asynchronously on the frontend
-		// log.Printf("Fetching avatar for: %s (server: %s)", cm.JID.String(), cm.JID.Server)
-		// if avatarURL, err := a.GetCachedAvatar(cm.JID.String()); err == nil && avatarURL != "" {
-		// 	fc.AvatarURL = avatarURL
-		// } else {
-		// 	log.Printf("FAILED: No avatar found for %s: %v", cm.JID.String(), err)
-		// }
-
 		// todo: remove this later
 		fc.FullName = fmt.Sprintf("%s (%s)", fc.FullName, cm.JID.String())
 		ce[i] = ChatElement{
@@ -667,27 +658,7 @@ func (a *Api) mainEventHandler(evt any) {
 
 		// Emit the message data directly so frontend doesn't need to make an API call
 		// Extract message text for chat list update
-		var messageText string
-		if v.Message.GetConversation() != "" {
-			messageText = v.Message.GetConversation()
-		} else if v.Message.GetExtendedTextMessage() != nil {
-			messageText = v.Message.GetExtendedTextMessage().GetText()
-		} else {
-			switch {
-			case v.Message.GetImageMessage() != nil:
-				messageText = "image"
-			case v.Message.GetVideoMessage() != nil:
-				messageText = "video"
-			case v.Message.GetAudioMessage() != nil:
-				messageText = "audio"
-			case v.Message.GetDocumentMessage() != nil:
-				messageText = "document"
-			case v.Message.GetStickerMessage() != nil:
-				messageText = "sticker"
-			default:
-				messageText = "message"
-			}
-		}
+		messageText := store.ExtractMessageText(v.Message)
 
 		msg := store.Message{
 			Info:    v.Info,
