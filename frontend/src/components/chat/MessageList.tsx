@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useRef, useCallback, memo, useEffect } from "react"
+import { forwardRef, useImperativeHandle, useRef, useCallback, useEffect } from "react"
 import { store } from "../../../wailsjs/go/models"
 import { MessageItem } from "./MessageItem"
 
@@ -20,8 +20,6 @@ export interface MessageListHandle {
   scrollToMessage: (messageId: string) => void
 }
 
-const MemoizedMessageItem = memo(MessageItem)
-
 export const MessageList = forwardRef<MessageListHandle, MessageListProps>(function MessageList(
   {
     chatId,
@@ -38,7 +36,9 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const minScrollTopRef = useRef<number>(Infinity)
+  const lastMessageCountRef = useRef(0)
+  const previousScrollHeightRef = useRef(0)
+  const isLoadingRef = useRef(false)
 
   const scrollToBottom = useCallback((behavior: "auto" | "smooth" = "smooth") => {
     const el = containerRef.current
@@ -73,26 +73,43 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
   }, [])
 
   useEffect(() => {
-    minScrollTopRef.current = Infinity
-  }, [messages.length])
+    const el = containerRef.current
+    if (!el) return
+
+    const prevCount = lastMessageCountRef.current
+    const currentCount = messages.length
+
+    // Messages were prepended (loaded older messages)
+    if (currentCount > prevCount && prevCount > 0 && isLoadingRef.current) {
+      const previousScrollHeight = previousScrollHeightRef.current
+      const currentScrollHeight = el.scrollHeight
+      const scrollDiff = currentScrollHeight - previousScrollHeight
+
+      // Restore scroll position to keep user at same visual position
+      el.scrollTop = scrollDiff
+      isLoadingRef.current = false
+    }
+
+    lastMessageCountRef.current = currentCount
+  }, [messages])
+
+  useEffect(() => {
+    // Sync loading state
+    if (!isLoading) {
+      isLoadingRef.current = false
+    }
+  }, [isLoading])
 
   const onScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
       const el = e.currentTarget
 
-      minScrollTopRef.current = Math.min(minScrollTopRef.current, el.scrollTop)
-
-      // Trigger load more when ~2 messages are left above viewport (assuming ~100px per message)
-      // Check both current position and minimum reached to catch fast scrolling
-      if (
-        (el.scrollTop <= 200 || minScrollTopRef.current <= 200) &&
-        !isLoading &&
-        hasMore &&
-        onLoadMore
-      ) {
+      // Trigger load more when at the top with a small threshold
+      // Check if we're near the top and not already loading
+      if (el.scrollTop < 500 && !isLoading && !isLoadingRef.current && hasMore && onLoadMore) {
+        isLoadingRef.current = true
+        previousScrollHeightRef.current = el.scrollHeight
         onLoadMore()
-        // Reset after triggering load
-        minScrollTopRef.current = Infinity
       }
 
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 5
@@ -115,7 +132,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
       </div>
       {messages.map(msg => (
         <div key={msg.Info.ID} data-message-id={msg.Info.ID} className="px-4 py-1">
-          <MemoizedMessageItem
+          <MessageItem
             message={msg}
             chatId={chatId}
             sentMediaCache={sentMediaCache}
