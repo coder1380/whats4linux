@@ -25,11 +25,35 @@ type Message struct {
 
 const MaxMessageCacheSize = 50
 
+type writeJob func(tx *sql.Tx) error
+
 type MessageStore struct {
 	db *sql.DB
+
 	// [chatJID.User] = ChatMessage
 	chatListMap *cacher.Cacher[string, ChatMessage]
 	mCache      misc.VMap[string, uint8]
+
+	stmtInsert *sql.Stmt
+	stmtUpdate *sql.Stmt
+
+	writeCh chan writeJob
+}
+
+func (ms *MessageStore) runWriter() {
+	for job := range ms.writeCh {
+		tx, err := ms.db.Begin()
+		if err != nil {
+			continue
+		}
+
+		if err := job(tx); err != nil {
+			tx.Rollback()
+			continue
+		}
+
+		tx.Commit()
+	}
 }
 
 // ExtractMessageText extracts a text representation from a WhatsApp message
@@ -62,31 +86,65 @@ func NewMessageStore() (*MessageStore, error) {
 		return nil, err
 	}
 
-	// Configure chat list cache (decentralized, separate from messages)
-	chatListCache := cacher.NewCacher[string, ChatMessage](
-		&cacher.NewCacherOpts{
-			TimeToLive:    10 * time.Minute,
-			Revaluate:     true,
-			CleanInterval: 15 * time.Minute,
-		},
-	)
-
-	ms := &MessageStore{
-		db:          db,
-		chatListMap: chatListCache,
-		mCache:      misc.NewVMap[string, uint8](),
+	pragmas := []string{
+		`PRAGMA journal_mode=WAL;`,
+		`PRAGMA synchronous=NORMAL;`,
+		`PRAGMA busy_timeout=5000;`,
+		`PRAGMA foreign_keys=ON;`,
 	}
 
-	if err := ms.initSchema(); err != nil {
+	for _, p := range pragmas {
+		if _, err := db.Exec(p); err != nil {
+			return nil, err
+		}
+	}
+
+	ms := &MessageStore{
+		db:      db,
+		writeCh: make(chan writeJob, 100),
+		mCache:  misc.NewVMap[string, uint8](),
+		chatListMap: cacher.NewCacher[string, ChatMessage](
+			&cacher.NewCacherOpts{
+				TimeToLive:    10 * time.Minute,
+				Revaluate:     true,
+				CleanInterval: 15 * time.Minute,
+			},
+		),
+	}
+
+	go ms.runWriter()
+
+	done := make(chan error, 1)
+
+	ms.writeCh <- func(tx *sql.Tx) error {
+		_, err := tx.Exec(query.CreateSchema)
+		done <- err
+		return err
+	}
+
+	if err := <-done; err != nil {
+		return nil, err
+	}
+
+	done = make(chan error, 1)
+
+	ms.writeCh <- func(tx *sql.Tx) error {
+		var err error
+		ms.stmtInsert, err = tx.Prepare(query.InsertMessage)
+		if err != nil {
+			done <- err
+			return err
+		}
+		ms.stmtUpdate, err = tx.Prepare(query.UpdateMessage)
+		done <- err
+		return err
+	}
+
+	if err := <-done; err != nil {
 		return nil, err
 	}
 
 	return ms, nil
-}
-
-func (ms *MessageStore) initSchema() error {
-	_, err := ms.db.Exec(query.CreateSchema)
-	return err
 }
 
 func updateCanonicalJID(ctx context.Context, js store.LIDStore, jid *types.JID) (changed bool) {
@@ -351,14 +409,17 @@ func (ms *MessageStore) insertMessageToDB(msg *Message) error {
 		return err
 	}
 
-	_, err = ms.db.Exec(query.InsertMessage,
-		msg.Info.Chat.String(),
-		msg.Info.ID,
-		msg.Info.Timestamp.Unix(),
-		msgInfo,
-		rawMessage,
-	)
-	return err
+	ms.writeCh <- func(tx *sql.Tx) error {
+		_, err := tx.Stmt(ms.stmtInsert).Exec(
+			msg.Info.Chat.String(),
+			msg.Info.ID,
+			msg.Info.Timestamp.Unix(),
+			msgInfo,
+			rawMessage,
+		)
+		return err
+	}
+	return nil
 }
 
 func (ms *MessageStore) updateMessageInDB(msg *Message) error {
@@ -372,76 +433,86 @@ func (ms *MessageStore) updateMessageInDB(msg *Message) error {
 		return err
 	}
 
-	_, err = ms.db.Exec(query.UpdateMessage,
-		msgInfo,
-		rawMessage,
-		msg.Info.ID,
-	)
-	return err
-}
-
-func (ms *MessageStore) MigrateLIDToPN(ctx context.Context, sd store.LIDStore) error {
-	rows, err := ms.db.Query(query.SelectAllMessagesInfo)
-	if err != nil {
+	ms.writeCh <- func(tx *sql.Tx) error {
+		_, err := tx.Stmt(ms.stmtUpdate).Exec(
+			msgInfo,
+			rawMessage,
+			msg.Info.ID,
+		)
 		return err
 	}
-	defer rows.Close()
+	return nil
+}
 
-	var (
-		minf   []byte
-		oC, oS string
-	)
-
-	for rows.Next() {
-		minf = minf[:0]
-
-		if err := rows.Scan(&minf); err != nil {
-			continue
-		}
-
-		var messageInfo types.MessageInfo
-		if err := gobDecode(minf, &messageInfo); err != nil {
-			log.Println("Failed to decode message info during LID to PN migration:", err)
-			continue
-		}
-
-		oC = messageInfo.Chat.String()
-		oS = messageInfo.Sender.String()
-
-		cc := updateCanonicalJID(ctx, sd, &messageInfo.Chat)
-		sc := updateCanonicalJID(ctx, sd, &messageInfo.Sender)
-
-		if !cc && !sc {
-			continue
-		}
-
-		msgInfo, err := gobEncode(messageInfo)
+func (ms *MessageStore) MigrateLIDToPN(ctx context.Context, sd store.LIDStore) {
+	ms.writeCh <- func(tx *sql.Tx) error {
+		rows, err := tx.Query(query.SelectAllMessagesInfo)
 		if err != nil {
-			log.Println("Failed to encode message info during LID to PN migration:", err)
-			continue
+			return err
 		}
+		defer rows.Close()
 
-		_, err = ms.db.Exec(query.UpdateMessageInfo,
-			msgInfo,
-			messageInfo.ID,
+		stmtUpdate, err := tx.Prepare(query.UpdateMessageInfo)
+		if err != nil {
+			return err
+		}
+		defer stmtUpdate.Close()
+
+		var (
+			minf   []byte
+			oC, oS string
 		)
 
-		if err != nil {
-			log.Println("Failed to update message during LID to PN migration:", err)
-			continue
-		}
+		for rows.Next() {
+			minf = minf[:0]
 
-		if cc {
-			log.Printf("Migrated message %s chat from LID %s to PN %s\n",
-				messageInfo.ID, oC, messageInfo.Chat.String())
+			if err := rows.Scan(&minf); err != nil {
+				continue
+			}
+
+			var messageInfo types.MessageInfo
+			if err := gobDecode(minf, &messageInfo); err != nil {
+				log.Println("Failed to decode message info during LID to PN migration:", err)
+				continue
+			}
+
+			oC = messageInfo.Chat.String()
+			oS = messageInfo.Sender.String()
+
+			cc := updateCanonicalJID(ctx, sd, &messageInfo.Chat)
+			sc := updateCanonicalJID(ctx, sd, &messageInfo.Sender)
+
+			if !cc && !sc {
+				continue
+			}
+
+			msgInfo, err := gobEncode(messageInfo)
+			if err != nil {
+				log.Println("Failed to encode message info during LID to PN migration:", err)
+				continue
+			}
+
+			_, err = stmtUpdate.Exec(
+				msgInfo,
+				messageInfo.ID,
+			)
+
+			if err != nil {
+				log.Println("Failed to update message during LID to PN migration:", err)
+				continue
+			}
+
+			if cc {
+				log.Printf("Migrated message %s chat from LID %s to PN %s\n",
+					messageInfo.ID, oC, messageInfo.Chat.String())
+			}
+			if sc {
+				log.Printf("Migrated message %s sender from LID %s to PN %s\n",
+					messageInfo.ID, oS, messageInfo.Sender.String())
+			}
 		}
-		if sc {
-			log.Printf("Migrated message %s sender from LID %s to PN %s\n",
-				messageInfo.ID, oS, messageInfo.Sender.String())
-		}
+		return nil
 	}
-
-	return nil
 }
 
 func marshalMessageContent(msg *waE2E.Message) ([]byte, error) {
