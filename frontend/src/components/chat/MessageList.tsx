@@ -82,7 +82,13 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
     }
   }, [])
 
-  useImperativeHandle(ref, () => ({ scrollToBottom, scrollToMessage, getScrollHeight, getScrollTop, setScrollTop }))
+  useImperativeHandle(ref, () => ({
+    scrollToBottom,
+    scrollToMessage,
+    getScrollHeight,
+    getScrollTop,
+    setScrollTop,
+  }))
 
   useEffect(() => {
     return () => {
