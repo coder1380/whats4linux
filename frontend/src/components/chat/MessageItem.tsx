@@ -211,22 +211,29 @@ export function MessageItem({
   return (
     <>
       <div
-        className={clsx("flex mb-2 group overflow-hidden", isFromMe ? "justify-end" : "justify-start", {
-          "ring-2 ring-yellow-400": highlightedMessageId === message.Info.ID,
-        })}
+        className={clsx(
+          "flex mb-2 group overflow-hidden",
+          isFromMe ? "justify-end" : "justify-start",
+          {
+            "ring-2 ring-yellow-400": highlightedMessageId === message.Info.ID,
+          },
+        )}
       >
         <div
-          className={clsx("max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg xl:max-w-xl rounded-lg p-2 shadow-sm relative min-w-0", {
-            "bg-transparent shadow-none": isSticker,
+          className={clsx(
+            "max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg xl:max-w-xl rounded-lg p-2 shadow-sm relative min-w-0",
+            {
+              "bg-transparent shadow-none": isSticker,
 
-            // SENT
-            "bg-sent-bubble-bg dark:bg-sent-bubble-dark-bg text-(--color-sent-bubble-text) dark:text-(--color-sent-bubble-dark-text)":
-              isFromMe && !isSticker,
+              // SENT
+              "bg-sent-bubble-bg dark:bg-sent-bubble-dark-bg text-(--color-sent-bubble-text) dark:text-(--color-sent-bubble-dark-text)":
+                isFromMe && !isSticker,
 
-            // RECEIVED
-            "bg-received-bubble-bg dark:bg-received-bubble-dark-bg text-(--color-received-bubble-text) dark:text-(--color-received-bubble-dark-text)":
-              !isFromMe && !isSticker,
-          })}
+              // RECEIVED
+              "bg-received-bubble-bg dark:bg-received-bubble-dark-bg text-(--color-received-bubble-text) dark:text-(--color-received-bubble-dark-text)":
+                !isFromMe && !isSticker,
+            },
+          )}
         >
           {/* Message Menu - positioned at top right corner */}
           <MessageMenu

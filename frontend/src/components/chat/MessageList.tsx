@@ -98,7 +98,6 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
     }
   }, [])
 
-
   const onScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
       const el = e.currentTarget
@@ -138,7 +137,11 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
         ) : null}
       </div>
       {messages.map(msg => (
-        <div key={msg.Info.ID} data-message-id={msg.Info.ID} className="px-2 py-1 sm:px-4 overflow-x-hidden">
+        <div
+          key={msg.Info.ID}
+          data-message-id={msg.Info.ID}
+          className="px-2 py-1 sm:px-4 overflow-x-hidden"
+        >
           <MemoizedMessageItem
             message={msg}
             chatId={chatId}
