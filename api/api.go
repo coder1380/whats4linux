@@ -724,7 +724,13 @@ func (a *Api) mainEventHandler(evt any) {
 		a.cw.Initialise(a.waClient)
 		a.waClient.SendPresence(a.ctx, types.PresenceAvailable)
 		// Run migration
-		a.messageStore.MigrateLIDToPN(a.ctx, a.waClient.Store.LIDs)
+		err := a.messageStore.MigrateLIDToPN(a.ctx, a.waClient.Store.LIDs)
+		if err != nil {
+			log.Println("Migration failed:", err)
+		} else {
+			log.Println("Migration completed successfully")
+			runtime.EventsEmit(a.ctx, "wa:chat_list_refresh")
+		}
 	case *events.Disconnected:
 		a.waClient.SendPresence(a.ctx, types.PresenceUnavailable)
 

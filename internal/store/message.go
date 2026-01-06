@@ -444,29 +444,36 @@ func (ms *MessageStore) updateMessageInDB(msg *Message) error {
 	return nil
 }
 
-func (ms *MessageStore) MigrateLIDToPN(ctx context.Context, sd store.LIDStore) {
+func (ms *MessageStore) MigrateLIDToPN(ctx context.Context, sd store.LIDStore) error {
+	log.Println("Starting LID to PN migration for messages...")
+	done := make(chan error, 1)
 	ms.writeCh <- func(tx *sql.Tx) error {
+		log.Println("Fetching all messages for migration...")
+		defer log.Println("Migration task completed.")
 		rows, err := tx.Query(query.SelectAllMessagesInfo)
 		if err != nil {
+			done <- err
 			return err
 		}
 		defer rows.Close()
 
 		stmtUpdate, err := tx.Prepare(query.UpdateMessageInfo)
 		if err != nil {
+			done <- err
 			return err
 		}
 		defer stmtUpdate.Close()
 
 		var (
 			minf   []byte
+			chat   string
 			oC, oS string
 		)
 
 		for rows.Next() {
 			minf = minf[:0]
 
-			if err := rows.Scan(&minf); err != nil {
+			if err := rows.Scan(&chat, &minf); err != nil {
 				continue
 			}
 
@@ -475,6 +482,9 @@ func (ms *MessageStore) MigrateLIDToPN(ctx context.Context, sd store.LIDStore) {
 				log.Println("Failed to decode message info during LID to PN migration:", err)
 				continue
 			}
+
+			chatJid, _ := types.ParseJID(chat)
+			messageInfo.Chat = chatJid
 
 			oC = messageInfo.Chat.String()
 			oS = messageInfo.Sender.String()
@@ -493,6 +503,7 @@ func (ms *MessageStore) MigrateLIDToPN(ctx context.Context, sd store.LIDStore) {
 			}
 
 			_, err = stmtUpdate.Exec(
+				messageInfo.Chat.String(),
 				msgInfo,
 				messageInfo.ID,
 			)
@@ -511,8 +522,10 @@ func (ms *MessageStore) MigrateLIDToPN(ctx context.Context, sd store.LIDStore) {
 					messageInfo.ID, oS, messageInfo.Sender.String())
 			}
 		}
+		done <- nil
 		return nil
 	}
+	return <-done
 }
 
 func marshalMessageContent(msg *waE2E.Message) ([]byte, error) {

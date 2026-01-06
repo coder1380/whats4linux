@@ -55,12 +55,12 @@ const (
 
 	UpdateMessageInfo = `
 	UPDATE messages
-	SET msg_info = ?
+	SET chat = ?, msg_info = ?
 	WHERE message_id = ?;
 	`
 
 	SelectAllMessagesInfo = `
-	SELECT msg_info
+	SELECT chat, msg_info
 	FROM messages;
 	`
 
