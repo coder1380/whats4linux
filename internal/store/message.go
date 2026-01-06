@@ -587,10 +587,10 @@ func MigrateLIDToPNForMessagesDB(ctx context.Context, sd store.LIDStore) error {
 	defer stmtUpdate.Close()
 
 	var (
-		messageID string
-		chatJIDStr string
+		messageID    string
+		chatJIDStr   string
 		senderJIDStr string
-		oC, oS string
+		oC, oS       string
 	)
 
 	for rows.Next() {
