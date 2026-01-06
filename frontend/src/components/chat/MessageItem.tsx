@@ -8,10 +8,10 @@ import { MessageMenu } from "./MessageMenu"
 import { ClockPendingIcon, BlueTickIcon } from "../../assets/svgs/chat_icons"
 
 interface MessageItemProps {
-  message: store.Message
+  message: store.DecodedMessage
   chatId: string
   sentMediaCache: React.MutableRefObject<Map<string, string>>
-  onReply?: (message: store.Message) => void
+  onReply?: (message: store.DecodedMessage) => void
   onQuotedClick?: (messageId: string) => void
   highlightedMessageId?: string | null
 }
@@ -105,6 +105,7 @@ export function MessageItem({
   // Fetch Group Member Names (Feature #2)
   useEffect(() => {
     if (!isFromMe && message.Info.Sender && chatId.endsWith("@g.us")) {
+      // GetContact now accepts a string JID directly
       GetContact(message.Info.Sender)
         .then((contact: any) => {
           if (contact?.full_name || contact?.push_name) {
@@ -118,23 +119,33 @@ export function MessageItem({
   // Render markdown
   useEffect(() => {
     const textContent = content?.conversation || content?.extendedTextMessage?.text
-    const contextInfo = content?.extendedTextMessage?.contextInfo
-    const mentionedJIDs = contextInfo?.mentionedJID || []
+    // Parse mentions from the message's mentions field (stored as JSON string)
+    let mentionedJIDs: string[] = []
+    if (message.mentions) {
+      try {
+        mentionedJIDs = JSON.parse(message.mentions)
+      } catch {}
+    }
 
     if (textContent) {
       RenderMarkdown(textContent, mentionedJIDs)
         .then(html => setRenderedMarkdown(html))
         .catch(() => setRenderedMarkdown(textContent))
     }
-  }, [content?.conversation, content?.extendedTextMessage])
+  }, [content?.conversation, content?.extendedTextMessage, message.mentions])
 
   useEffect(() => {
     const caption =
       content?.imageMessage?.caption ||
       content?.videoMessage?.caption ||
       content?.documentMessage?.caption
-    const contextInfo = content?.extendedTextMessage?.contextInfo
-    const mentionedJIDs = contextInfo?.mentionedJID || []
+    // Parse mentions from the message's mentions field
+    let mentionedJIDs: string[] = []
+    if (message.mentions) {
+      try {
+        mentionedJIDs = JSON.parse(message.mentions)
+      } catch {}
+    }
     if (caption) {
       RenderMarkdown(caption, mentionedJIDs)
         .then(html => setRenderedCaptionMarkdown(html))
@@ -202,8 +213,8 @@ export function MessageItem({
       const doc = content.documentMessage
       const fileName = doc.fileName || "Document"
       const extension = fileName.split(".").pop()?.toUpperCase() || "FILE"
-      const fileSize =
-        typeof doc.fileLength === "number" ? doc.fileLength : (doc.fileLength as any)?.low || 0
+      // fileLength is not available in DecodedMessageContent, show "Unknown size"
+      const fileSize = 0
 
       return (
         <div className="flex flex-col">
@@ -217,7 +228,7 @@ export function MessageItem({
                 {fileName}
               </div>
               <div className="text-xs opacity-60 text-gray-500 dark:text-gray-400">
-                {formatSize(fileSize)}
+                {fileSize > 0 ? formatSize(fileSize) : "Document"}
               </div>
             </div>
             <button
@@ -237,15 +248,9 @@ export function MessageItem({
           {renderCaption(doc.caption)}
         </div>
       )
-    } else if (content.senderKeyDistributionMessage) {
-      return <span className="italic opacity-50 text-xs">Encryption Info Message</span>
-    } else if (content.reactionMessage) {
-      return (
-        <span className="italic opacity-50 text-xs">
-          Reaction: {content.reactionMessage.text} to message ID {content.reactionMessage.key?.ID}
-        </span>
-      )
     }
+    // Note: senderKeyDistributionMessage and reactionMessage are not stored in messages.db
+    // Reactions are stored separately and shown via the Reactions field
     console.log("Unsupported message content:", content)
     return <span className="italic opacity-50 text-xs">Unsupported Message Type</span>
   }

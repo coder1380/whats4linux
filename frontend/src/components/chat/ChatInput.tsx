@@ -15,7 +15,7 @@ interface ChatInputProps {
   fileInputRef: React.RefObject<HTMLInputElement | null>
   emojiPickerRef: React.RefObject<HTMLDivElement | null>
   emojiButtonRef: React.RefObject<HTMLButtonElement | null>
-  replyingTo: store.Message | null
+  replyingTo: store.DecodedMessage | null
   onInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void
   onKeyDown: (e: React.KeyboardEvent) => void
   onPaste: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void

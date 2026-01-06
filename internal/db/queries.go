@@ -239,4 +239,52 @@ const (
 	SET chat_jid = ?, sender_jid = ?
 	WHERE message_id = ?;
 	`
+
+	// Messages.db paged queries (for frontend)
+	SelectDecodedMessagesByChatBeforeTimestamp = `
+	SELECT message_id, chat_jid, sender_jid, timestamp, is_from_me, type, text, media_type, reply_to_message_id, mentions, edited
+	FROM (
+		SELECT message_id, chat_jid, sender_jid, timestamp, is_from_me, type, text, media_type, reply_to_message_id, mentions, edited
+		FROM messages
+		WHERE chat_jid = ? AND timestamp < ?
+		ORDER BY timestamp DESC
+		LIMIT ?
+	)
+	ORDER BY timestamp ASC
+	`
+
+	SelectLatestDecodedMessagesByChat = `
+	SELECT message_id, chat_jid, sender_jid, timestamp, is_from_me, type, text, media_type, reply_to_message_id, mentions, edited
+	FROM (
+		SELECT message_id, chat_jid, sender_jid, timestamp, is_from_me, type, text, media_type, reply_to_message_id, mentions, edited
+		FROM messages
+		WHERE chat_jid = ?
+		ORDER BY timestamp DESC
+		LIMIT ?
+	)
+	ORDER BY timestamp ASC
+	`
+
+	SelectDecodedMessageByChatAndID = `
+	SELECT message_id, chat_jid, sender_jid, timestamp, is_from_me, type, text, media_type, reply_to_message_id, mentions, edited
+	FROM messages
+	WHERE chat_jid = ? AND message_id = ?
+	LIMIT 1
+	`
+
+	// Chat list from messages.db
+	SelectDecodedChatList = `
+	SELECT message_id, chat_jid, sender_jid, timestamp, is_from_me, type, text, media_type, reply_to_message_id, mentions, edited
+	FROM (
+		SELECT 
+			message_id, chat_jid, sender_jid, timestamp, is_from_me, type, text, media_type, reply_to_message_id, mentions, edited,
+			ROW_NUMBER() OVER (
+				PARTITION BY chat_jid
+				ORDER BY timestamp DESC
+			) AS rn
+		FROM messages
+	)
+	WHERE rn = 1
+	ORDER BY timestamp DESC;
+	`
 )

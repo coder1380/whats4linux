@@ -772,7 +772,10 @@ func InsertMessage(msg *Message) error {
 			mediaType = query.MediaTypeSticker
 			text = "sticker"
 		default:
-			text = "message"
+			// Log unsupported message type and skip storing in messages.db
+			log.Printf("Skipping unsupported message type for message ID %s in chat %s: %T\n",
+				msg.Info.ID, msg.Info.Chat.String(), msg.Content)
+			return nil
 		}
 	}
 
@@ -964,4 +967,349 @@ func AddReactionToMessage(targetID, reaction, senderJID string) error {
 
 	// Commit the transaction
 	return tx.Commit()
+}
+
+// DecodedMessage represents a message from messages.db with decoded fields
+type DecodedMessage struct {
+	MessageID        string     `json:"message_id"`
+	ChatJID          string     `json:"chat_jid"`
+	SenderJID        string     `json:"sender_jid"`
+	Timestamp        int64      `json:"timestamp"`
+	IsFromMe         bool       `json:"is_from_me"`
+	Type             int        `json:"type"`
+	Text             string     `json:"text"`
+	MediaType        int        `json:"media_type"`
+	ReplyToMessageID string     `json:"reply_to_message_id"`
+	Mentions         string     `json:"mentions"`
+	Edited           bool       `json:"edited"`
+	Reactions        []Reaction `json:"reactions"`
+	// Info provides compatibility with frontend that expects types.MessageInfo structure
+	Info DecodedMessageInfo `json:"Info"`
+	// Content provides a minimal content structure for frontend rendering
+	Content *DecodedMessageContent `json:"Content"`
+}
+
+// DecodedMessageInfo is a simplified MessageInfo for frontend compatibility
+type DecodedMessageInfo struct {
+	ID        string `json:"ID"`
+	Timestamp string `json:"Timestamp"`
+	IsFromMe  bool   `json:"IsFromMe"`
+	PushName  string `json:"PushName"`
+	Sender    string `json:"Sender"`
+	Chat      string `json:"Chat"`
+}
+
+// DecodedMessageContent provides minimal content info for frontend rendering
+type DecodedMessageContent struct {
+	Conversation        string                   `json:"conversation,omitempty"`
+	ExtendedTextMessage *ExtendedTextContent     `json:"extendedTextMessage,omitempty"`
+	ImageMessage        *MediaMessageContent     `json:"imageMessage,omitempty"`
+	VideoMessage        *MediaMessageContent     `json:"videoMessage,omitempty"`
+	AudioMessage        *MediaMessageContent     `json:"audioMessage,omitempty"`
+	DocumentMessage     *DocumentMessageContent  `json:"documentMessage,omitempty"`
+	StickerMessage      *MediaMessageContent     `json:"stickerMessage,omitempty"`
+}
+
+type ExtendedTextContent struct {
+	Text        string       `json:"text,omitempty"`
+	ContextInfo *ContextInfo `json:"contextInfo,omitempty"`
+}
+
+type MediaMessageContent struct {
+	Caption     string       `json:"caption,omitempty"`
+	Mimetype    string       `json:"mimetype,omitempty"`
+	ContextInfo *ContextInfo `json:"contextInfo,omitempty"`
+}
+
+type DocumentMessageContent struct {
+	Caption     string       `json:"caption,omitempty"`
+	FileName    string       `json:"fileName,omitempty"`
+	Mimetype    string       `json:"mimetype,omitempty"`
+	ContextInfo *ContextInfo `json:"contextInfo,omitempty"`
+}
+
+type ContextInfo struct {
+	StanzaID      string `json:"stanzaId,omitempty"`
+	Participant   string `json:"participant,omitempty"`
+	QuotedMessage any    `json:"quotedMessage,omitempty"`
+}
+
+// GetDecodedMessagesPaged returns a page of decoded messages from messages.db
+func GetDecodedMessagesPaged(chatJID string, beforeTimestamp int64, limit int) ([]DecodedMessage, error) {
+	db, err := sql.Open("sqlite3", misc.GetSQLiteAddress("messages.db"))
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	var rows *sql.Rows
+
+	if beforeTimestamp == 0 {
+		rows, err = db.Query(query.SelectLatestDecodedMessagesByChat, chatJID, limit)
+	} else {
+		rows, err = db.Query(query.SelectDecodedMessagesByChatBeforeTimestamp, chatJID, beforeTimestamp, limit)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages []DecodedMessage
+
+	for rows.Next() {
+		var msg DecodedMessage
+		var mediaType sql.NullInt64
+		var replyTo sql.NullString
+		var mentions sql.NullString
+		var text sql.NullString
+
+		err := rows.Scan(
+			&msg.MessageID,
+			&msg.ChatJID,
+			&msg.SenderJID,
+			&msg.Timestamp,
+			&msg.IsFromMe,
+			&msg.Type,
+			&text,
+			&mediaType,
+			&replyTo,
+			&mentions,
+			&msg.Edited,
+		)
+		if err != nil {
+			log.Println("Failed to scan decoded message:", err)
+			continue
+		}
+
+		if text.Valid {
+			msg.Text = text.String
+		}
+		if mediaType.Valid {
+			msg.MediaType = int(mediaType.Int64)
+		}
+		if replyTo.Valid {
+			msg.ReplyToMessageID = replyTo.String
+		}
+		if mentions.Valid {
+			msg.Mentions = mentions.String
+		}
+
+		// Load reactions for this message
+		reactions, err := GetReactionsByMessageID(msg.MessageID)
+		if err == nil {
+			msg.Reactions = reactions
+		}
+
+		// Populate Info for frontend compatibility
+		msg.Info = DecodedMessageInfo{
+			ID:        msg.MessageID,
+			Timestamp: time.Unix(msg.Timestamp, 0).Format(time.RFC3339),
+			IsFromMe:  msg.IsFromMe,
+			PushName:  "", // Will be populated by frontend from contacts
+			Sender:    msg.SenderJID,
+			Chat:      msg.ChatJID,
+		}
+
+		// Populate Content for frontend rendering
+		msg.Content = buildDecodedContent(&msg)
+
+		messages = append(messages, msg)
+	}
+
+	return messages, nil
+}
+
+// buildDecodedContent creates a DecodedMessageContent from DecodedMessage fields
+func buildDecodedContent(msg *DecodedMessage) *DecodedMessageContent {
+	content := &DecodedMessageContent{}
+
+	// Build context info if there's a reply
+	var contextInfo *ContextInfo
+	if msg.ReplyToMessageID != "" {
+		contextInfo = &ContextInfo{
+			StanzaID: msg.ReplyToMessageID,
+		}
+	}
+
+	// Based on message type, populate the appropriate content field
+	switch query.MessageType(msg.Type) {
+	case query.MessageTypeText:
+		if contextInfo != nil {
+			content.ExtendedTextMessage = &ExtendedTextContent{
+				Text:        msg.Text,
+				ContextInfo: contextInfo,
+			}
+		} else {
+			content.Conversation = msg.Text
+		}
+	case query.MessageTypeImage:
+		content.ImageMessage = &MediaMessageContent{
+			Caption:     msg.Text,
+			ContextInfo: contextInfo,
+		}
+	case query.MessageTypeVideo:
+		content.VideoMessage = &MediaMessageContent{
+			Caption:     msg.Text,
+			ContextInfo: contextInfo,
+		}
+	case query.MessageTypeAudio:
+		content.AudioMessage = &MediaMessageContent{
+			ContextInfo: contextInfo,
+		}
+	case query.MessageTypeDocument:
+		content.DocumentMessage = &DocumentMessageContent{
+			Caption:     msg.Text,
+			ContextInfo: contextInfo,
+		}
+	case query.MessageTypeSticker:
+		content.StickerMessage = &MediaMessageContent{
+			ContextInfo: contextInfo,
+		}
+	default:
+		// Default to conversation for unknown types
+		content.Conversation = msg.Text
+	}
+
+	return content
+}
+
+// GetDecodedMessage returns a single decoded message from messages.db by chat and message ID
+func GetDecodedMessage(chatJID string, messageID string) (*DecodedMessage, error) {
+	db, err := sql.Open("sqlite3", misc.GetSQLiteAddress("messages.db"))
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	var msg DecodedMessage
+	var mediaType sql.NullInt64
+	var replyTo sql.NullString
+	var mentions sql.NullString
+	var text sql.NullString
+
+	err = db.QueryRow(query.SelectDecodedMessageByChatAndID, chatJID, messageID).Scan(
+		&msg.MessageID,
+		&msg.ChatJID,
+		&msg.SenderJID,
+		&msg.Timestamp,
+		&msg.IsFromMe,
+		&msg.Type,
+		&text,
+		&mediaType,
+		&replyTo,
+		&mentions,
+		&msg.Edited,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if text.Valid {
+		msg.Text = text.String
+	}
+	if mediaType.Valid {
+		msg.MediaType = int(mediaType.Int64)
+	}
+	if replyTo.Valid {
+		msg.ReplyToMessageID = replyTo.String
+	}
+	if mentions.Valid {
+		msg.Mentions = mentions.String
+	}
+
+	// Load reactions
+	reactions, err := GetReactionsByMessageID(msg.MessageID)
+	if err == nil {
+		msg.Reactions = reactions
+	}
+
+	// Populate Info for frontend compatibility
+	msg.Info = DecodedMessageInfo{
+		ID:        msg.MessageID,
+		Timestamp: time.Unix(msg.Timestamp, 0).Format(time.RFC3339),
+		IsFromMe:  msg.IsFromMe,
+		PushName:  "",
+		Sender:    msg.SenderJID,
+		Chat:      msg.ChatJID,
+	}
+
+	// Populate Content for frontend rendering
+	msg.Content = buildDecodedContent(&msg)
+
+	return &msg, nil
+}
+
+// GetDecodedChatList returns the chat list from messages.db with the latest message for each chat
+func GetDecodedChatList() ([]DecodedMessage, error) {
+	db, err := sql.Open("sqlite3", misc.GetSQLiteAddress("messages.db"))
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	rows, err := db.Query(query.SelectDecodedChatList)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages []DecodedMessage
+
+	for rows.Next() {
+		var msg DecodedMessage
+		var mediaType sql.NullInt64
+		var replyTo sql.NullString
+		var mentions sql.NullString
+		var text sql.NullString
+
+		err := rows.Scan(
+			&msg.MessageID,
+			&msg.ChatJID,
+			&msg.SenderJID,
+			&msg.Timestamp,
+			&msg.IsFromMe,
+			&msg.Type,
+			&text,
+			&mediaType,
+			&replyTo,
+			&mentions,
+			&msg.Edited,
+		)
+		if err != nil {
+			log.Println("Failed to scan decoded message for chat list:", err)
+			continue
+		}
+
+		if text.Valid {
+			msg.Text = text.String
+		}
+		if mediaType.Valid {
+			msg.MediaType = int(mediaType.Int64)
+		}
+		if replyTo.Valid {
+			msg.ReplyToMessageID = replyTo.String
+		}
+		if mentions.Valid {
+			msg.Mentions = mentions.String
+		}
+
+		// Populate Info for frontend compatibility
+		msg.Info = DecodedMessageInfo{
+			ID:        msg.MessageID,
+			Timestamp: time.Unix(msg.Timestamp, 0).Format(time.RFC3339),
+			IsFromMe:  msg.IsFromMe,
+			PushName:  "",
+			Sender:    msg.SenderJID,
+			Chat:      msg.ChatJID,
+		}
+
+		// Populate Content for frontend rendering
+		msg.Content = buildDecodedContent(&msg)
+
+		messages = append(messages, msg)
+	}
+
+	return messages, nil
 }

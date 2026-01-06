@@ -151,7 +151,11 @@ func (a *Api) FetchGroups() ([]wa.Group, error) {
 	return result, nil
 }
 
-func (a *Api) GetContact(jid types.JID) (*Contact, error) {
+func (a *Api) GetContact(jidStr string) (*Contact, error) {
+	jid, err := types.ParseJID(jidStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid JID: %w", err)
+	}
 	contact, err := a.waClient.Store.Contacts.GetContact(a.ctx, jid)
 	if err != nil {
 		return nil, err
@@ -199,12 +203,11 @@ func (a *Api) FetchContacts() ([]Contact, error) {
 	return result, nil
 }
 
-func (a *Api) FetchMessagesPaged(jid string, limit int, beforeTimestamp int64) ([]store.Message, error) {
-	parsedJID, err := types.ParseJID(jid)
+func (a *Api) FetchMessagesPaged(jid string, limit int, beforeTimestamp int64) ([]store.DecodedMessage, error) {
+	messages, err := store.GetDecodedMessagesPaged(jid, beforeTimestamp, limit)
 	if err != nil {
 		return nil, err
 	}
-	messages := a.messageStore.GetMessagesPaged(parsedJID, beforeTimestamp, limit)
 	return messages, nil
 }
 
