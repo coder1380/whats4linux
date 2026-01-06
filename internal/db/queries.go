@@ -1,6 +1,15 @@
 package query
 
 const (
+	// Message types
+	MessageTypeText     uint8 = 1
+	MessageTypeImage    uint8 = 2
+	MessageTypeVideo    uint8 = 3
+	MessageTypeAudio    uint8 = 4
+	MessageTypeDocument uint8 = 5
+	MessageTypeSticker  uint8 = 6
+	MessageTypeContact  uint8 = 7
+
 	CreateGroupsTable = `
 	CREATE TABLE IF NOT EXISTS whats4linux_groups (
 		jid TEXT PRIMARY KEY,
@@ -156,9 +165,47 @@ const (
 	WHERE message_id IN (
 	`
 
-	GetImagesByIDs = `
-	SELECT message_id, sha256, mime, width, height, created_at
-	FROM image_index
-	WHERE message_id IN (?)
+	// Messages database queries
+	CreateMessagesTable = `
+	CREATE TABLE IF NOT EXISTS messages (
+		message_id TEXT PRIMARY KEY,
+		chat_jid TEXT NOT NULL,
+		sender_jid TEXT NOT NULL,
+		timestamp INTEGER NOT NULL,
+		is_from_me BOOLEAN NOT NULL,
+		type INTEGER NOT NULL,
+		text TEXT,
+		media_type TEXT,
+		mentions TEXT,
+		edited BOOLEAN DEFAULT FALSE,
+		reactions TEXT
+	);
+	CREATE INDEX IF NOT EXISTS idx_messages_chat_jid ON messages(chat_jid);
+	CREATE INDEX IF NOT EXISTS idx_messages_sender_jid ON messages(sender_jid);
+	CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp DESC);
+	`
+
+	InsertDecodedMessage = `
+	INSERT OR REPLACE INTO messages 
+	(message_id, chat_jid, sender_jid, timestamp, is_from_me, type, text, media_type, mentions, edited, reactions)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+	SelectDecodedMessageByID = `
+	SELECT message_id, chat_jid, sender_jid, timestamp, is_from_me, type, text, media_type, mentions, edited, reactions
+	FROM messages
+	WHERE message_id = ?
+	`
+
+	UpdateDecodedMessage = `
+	UPDATE messages
+	SET text = ?, type = ?, edited = TRUE
+	WHERE message_id = ?
+	`
+
+	UpdateMessageReactions = `
+	UPDATE messages
+	SET reactions = ?
+	WHERE message_id = ?
 	`
 )

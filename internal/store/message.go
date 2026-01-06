@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/gob"
+	"encoding/json"
 	"log"
 	"time"
 
@@ -19,8 +20,10 @@ import (
 )
 
 type Message struct {
-	Info    types.MessageInfo
-	Content *waE2E.Message
+	Info      types.MessageInfo
+	Content   *waE2E.Message
+	Edited    bool
+	Reactions string // JSON string of reactions: [{"reaction": "👍", "senderJID": "1234@s.whatsapp.net"}]
 }
 
 const MaxMessageCacheSize = 50
@@ -79,6 +82,7 @@ func ExtractMessageText(msg *waE2E.Message) string {
 		}
 	}
 }
+
 
 func NewMessageStore() (*MessageStore, error) {
 	db, err := sql.Open("sqlite3", misc.GetSQLiteAddress("mdb"))
@@ -168,11 +172,36 @@ func (ms *MessageStore) ProcessMessageEvent(ctx context.Context, sd store.LIDSto
 	updateCanonicalJID(ctx, sd, &msg.Info.Chat)
 	updateCanonicalJID(ctx, sd, &msg.Info.Sender)
 
+	if protoMsg := msg.Message.GetProtocolMessage(); protoMsg != nil && protoMsg.GetType() == waE2E.ProtocolMessage_MESSAGE_EDIT {
+		targetID := protoMsg.GetKey().GetID()
+		newContent := protoMsg.GetEditedMessage()
+		if targetID == "" || newContent == nil {
+			return
+		}
+
+		originalMsg := ms.GetMessage(msg.Info.Chat, targetID)
+		if originalMsg == nil {
+			originalMsg = ms.GetMessageByID(targetID)
+		}
+
+		if originalMsg == nil {
+			UpdateMessage(&Message{Info: types.MessageInfo{ID: targetID}, Content: newContent, Edited: true})
+			return
+		}
+
+		originalMsg.Content = newContent
+		originalMsg.Edited = true
+		ms.updateMessageInDB(originalMsg)
+		UpdateMessage(originalMsg)
+		return
+	}
+
 	chat := msg.Info.Chat.User
 
 	m := Message{
 		Info:    msg.Info,
 		Content: msg.Message,
+		Edited:  false,
 	}
 
 	// Update chatListMap with the new latest message
@@ -195,18 +224,13 @@ func (ms *MessageStore) ProcessMessageEvent(ctx context.Context, sd store.LIDSto
 	ms.chatListMap.Set(chat, chatMsg)
 
 	if _, exists := ms.mCache.Get(msg.Info.ID); exists {
-		err := ms.updateMessageInDB(&m)
-		if err != nil {
-			log.Println(err)
-		}
+		ms.updateMessageInDB(&m)
+		UpdateMessage(&m)
 		return
 	}
 	ms.mCache.Set(msg.Info.ID, 1)
-
-	err := ms.insertMessageToDB(&m)
-	if err != nil {
-		log.Println(err)
-	}
+	ms.insertMessageToDB(&m)
+	InsertMessage(&m)
 }
 
 func getMessageArrayFromRows(rows *sql.Rows) []Message {
@@ -232,6 +256,7 @@ func getMessageArrayFromRows(rows *sql.Rows) []Message {
 
 		var waMsg *waE2E.Message
 		waMsg, err := unmarshalMessageContent(raw)
+		
 		if err != nil {
 			continue
 		}
@@ -239,6 +264,7 @@ func getMessageArrayFromRows(rows *sql.Rows) []Message {
 		messages = append(messages, Message{
 			Info:    messageInfo,
 			Content: waMsg,
+			Edited:  false,
 		})
 	}
 
@@ -259,6 +285,7 @@ func buildMessageFromRawData(minf []byte, raw []byte) *Message {
 	return &Message{
 		Info:    messageInfo,
 		Content: waMsg,
+		Edited:  false,
 	}
 }
 
@@ -325,7 +352,7 @@ func (ms *MessageStore) GetMessageByID(messageID string) *Message {
 		return nil
 	}
 
-	return &Message{Info: messageInfo, Content: waMsg}
+	return &Message{Info: messageInfo, Content: waMsg, Edited: false}
 }
 
 type ChatMessage struct {
@@ -542,4 +569,235 @@ func gobDecode(data []byte, v any) error {
 
 func init() {
 	gob.Register(&types.MessageInfo{})
+}
+
+func InsertMessage(msg *Message) error {
+	db, err := sql.Open("sqlite3", misc.GetSQLiteAddress("messages.db"))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(query.CreateMessagesTable); err != nil {
+		return err
+	}
+
+	// Handle reaction messages differently - update the target message instead of creating a new one
+	if msg.Content.GetReactionMessage() != nil {
+		reactionMsg := msg.Content.GetReactionMessage()
+		targetID := reactionMsg.GetKey().GetID()
+		reaction := reactionMsg.GetText()
+		senderJID := msg.Info.Sender.String()
+		
+		return AddReactionToMessage(targetID, reaction, senderJID)
+	}
+
+	var msgType uint8 = query.MessageTypeText
+	var mediaType string
+	var text string
+	var mentions string
+	var reactions string
+
+	// Extract mentions if it's an extended text message
+	if msg.Content.GetExtendedTextMessage() != nil && msg.Content.GetExtendedTextMessage().GetContextInfo() != nil {
+		if mentioned := msg.Content.GetExtendedTextMessage().GetContextInfo().GetMentionedJID(); len(mentioned) > 0 {
+			mentionsBytes, _ := json.Marshal(mentioned)
+			mentions = string(mentionsBytes)
+		}
+	}
+
+	if msg.Content.GetConversation() != "" {
+		text = msg.Content.GetConversation()
+	} else if msg.Content.GetExtendedTextMessage() != nil {
+		text = msg.Content.GetExtendedTextMessage().GetText()
+	} else {
+		switch {
+		case msg.Content.GetImageMessage() != nil:
+			msgType = query.MessageTypeImage
+			mediaType = msg.Content.GetImageMessage().GetMimetype()
+			text = "image"
+		case msg.Content.GetVideoMessage() != nil:
+			msgType = query.MessageTypeVideo
+			mediaType = msg.Content.GetVideoMessage().GetMimetype()
+			text = "video"
+		case msg.Content.GetAudioMessage() != nil:
+			msgType = query.MessageTypeAudio
+			mediaType = msg.Content.GetAudioMessage().GetMimetype()
+			text = "audio"
+		case msg.Content.GetDocumentMessage() != nil:
+			msgType = query.MessageTypeDocument
+			mediaType = msg.Content.GetDocumentMessage().GetMimetype()
+			text = "document"
+		case msg.Content.GetStickerMessage() != nil:
+			msgType = query.MessageTypeSticker
+			mediaType = msg.Content.GetStickerMessage().GetMimetype()
+			text = "sticker"
+		default:
+			text = "message"
+		}
+	}
+
+	_, err = db.Exec(query.InsertDecodedMessage,
+		msg.Info.ID,
+		msg.Info.Chat.String(),
+		msg.Info.Sender.String(),
+		msg.Info.Timestamp.Unix(),
+		msg.Info.IsFromMe,
+		msgType,
+		text,
+		mediaType,
+		mentions,
+		msg.Edited,
+		reactions,
+	)
+
+	return err
+}
+
+func UpdateMessage(msg *Message) error {
+	db, err := sql.Open("sqlite3", misc.GetSQLiteAddress("messages.db"))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	var msgType uint8 = query.MessageTypeText
+	var text string
+
+	if msg.Content.GetConversation() != "" {
+		text = msg.Content.GetConversation()
+	} else if msg.Content.GetExtendedTextMessage() != nil {
+		text = msg.Content.GetExtendedTextMessage().GetText()
+	} else {
+		switch {
+		case msg.Content.GetImageMessage() != nil:
+			msgType = query.MessageTypeImage
+			text = "image"
+		case msg.Content.GetVideoMessage() != nil:
+			msgType = query.MessageTypeVideo
+			text = "video"
+		case msg.Content.GetAudioMessage() != nil:
+			msgType = query.MessageTypeAudio
+			text = "audio"
+		case msg.Content.GetDocumentMessage() != nil:
+			msgType = query.MessageTypeDocument
+			text = "document"
+		case msg.Content.GetStickerMessage() != nil:
+			msgType = query.MessageTypeSticker
+			text = "sticker"
+		default:
+			text = "message"
+		}
+	}
+
+	_, err = db.Exec(query.UpdateDecodedMessage,
+		text,
+		msgType,
+		msg.Info.ID,
+	)
+
+	return err
+}
+
+func GetMessage(messageID string) (*Message, error) {
+	db, err := sql.Open("sqlite3", misc.GetSQLiteAddress("messages.db"))
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	var (
+		id        string
+		chatJID   string
+		senderJID string
+		timestamp int64
+		isFromMe  bool
+		msgType   uint8
+		text      string
+		mediaType string
+		mentions  string
+		edited    bool
+		reactions string
+	)
+
+	err = db.QueryRow(query.SelectDecodedMessageByID, messageID).Scan(
+		&id,
+		&chatJID,
+		&senderJID,
+		&timestamp,
+		&isFromMe,
+		&msgType,
+		&text,
+		&mediaType,
+		&mentions,
+		&edited,
+		&reactions,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	chat, _ := types.ParseJID(chatJID)
+	sender, _ := types.ParseJID(senderJID)
+
+	msg := &Message{
+		Info: types.MessageInfo{
+			ID:        id,
+			Timestamp: time.Unix(timestamp, 0),
+			MessageSource: types.MessageSource{
+				Chat:     chat,
+				Sender:   sender,
+				IsFromMe: isFromMe,
+			},
+		},
+		Content:   &waE2E.Message{},
+		Edited:    edited,
+		Reactions: reactions,
+	}
+
+	return msg, nil
+}
+
+func AddReactionToMessage(targetID, reaction, senderJID string) error {
+	db, err := sql.Open("sqlite3", misc.GetSQLiteAddress("messages.db"))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	// First, get the current reactions for the target message
+	var currentReactions string
+	err = db.QueryRow(`SELECT reactions FROM messages WHERE message_id = ?`, targetID).Scan(&currentReactions)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+
+	var reactions []map[string]string
+	if currentReactions != "" {
+		// Parse existing reactions
+		if err := json.Unmarshal([]byte(currentReactions), &reactions); err != nil {
+			return err
+		}
+	} else {
+		reactions = []map[string]string{}
+	}
+
+	// Add the new reaction
+	newReaction := map[string]string{
+		"reaction":  reaction,
+		"senderJID": senderJID,
+		"targetID":  targetID,
+	}
+	reactions = append(reactions, newReaction)
+
+	// Convert back to JSON
+	reactionsJSON, err := json.Marshal(reactions)
+	if err != nil {
+		return err
+	}
+
+	// Update the message with new reactions
+	_, err = db.Exec(query.UpdateMessageReactions, string(reactionsJSON), targetID)
+	return err
 }
