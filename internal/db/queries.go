@@ -28,101 +28,6 @@ const (
 	WHERE jid = ?;
 	`
 
-	CreateSchema = `
-	CREATE TABLE IF NOT EXISTS messages (
-		chat TEXT NOT NULL,
-		message_id TEXT PRIMARY KEY,
-		timestamp INTEGER,
-		msg_info BLOB,
-		raw_message BLOB
-	);
-
-	CREATE INDEX IF NOT EXISTS idx_messages_chat_time
-	ON messages(chat, timestamp DESC);
-	`
-
-	InsertMessage = `
-	INSERT INTO messages
-	(chat, message_id, timestamp, msg_info, raw_message)
-	VALUES (?, ?, ?, ?, ?)
-	`
-
-	UpdateMessage = `
-	UPDATE messages
-	SET msg_info = ?, raw_message = ?
-	WHERE message_id = ?;
-	`
-
-	UpdateMessageInfo = `
-	UPDATE messages
-	SET chat = ?, msg_info = ?
-	WHERE message_id = ?;
-	`
-
-	UpdateMessagesChat = `
-	UPDATE messages
-	SET chat = ?
-	WHERE chat = ?;
-	`
-
-	SelectAllMessagesInfo = `
-	SELECT chat, msg_info
-	FROM messages;
-	`
-
-	SelectChatList = `
-	SELECT chat, timestamp, msg_info, raw_message
-	FROM (
-		SELECT 
-			chat, timestamp, msg_info, raw_message,
-			ROW_NUMBER() OVER (
-				PARTITION BY chat
-				ORDER BY timestamp DESC, rowid DESC
-			) AS rn
-		FROM messages
-	)
-	WHERE rn = 1
-	ORDER BY timestamp DESC;
-	`
-
-	SelectMessagesByChatBeforeTimestamp = `
-	SELECT msg_info, raw_message, timestamp
-	FROM (
-		SELECT msg_info, raw_message, timestamp
-		FROM messages
-		WHERE chat = ? AND timestamp < ?
-		ORDER BY timestamp DESC
-		LIMIT ?
-	)
-	ORDER BY timestamp ASC
-	`
-
-	SelectLatestMessagesByChat = `
-	SELECT msg_info, raw_message, timestamp
-	FROM (
-		SELECT msg_info, raw_message, timestamp
-		FROM messages
-		WHERE chat = ?
-		ORDER BY timestamp DESC
-		LIMIT ?
-	)
-	ORDER BY timestamp ASC
-	`
-
-	SelectMessageByChatAndID = `
-	SELECT msg_info, raw_message
-	FROM messages
-	WHERE chat = ? AND message_id = ?
-	LIMIT 1
-	`
-
-	SelectMessageByID = `
-	SELECT chat, message_id, timestamp, msg_info, raw_message
-	FROM messages
-	WHERE message_id = ?
-	LIMIT 1
-	`
-
 	// Image cache queries
 	CreateImageIndexTable = `
 	CREATE TABLE IF NOT EXISTS image_index (
@@ -162,7 +67,7 @@ const (
 	WHERE message_id IN (
 	`
 
-	// Messages database queries
+	// Messages database queries (messages.db)
 	CreateMessagesTable = `
 	CREATE TABLE IF NOT EXISTS messages (
 		message_id TEXT PRIMARY KEY,
@@ -202,6 +107,19 @@ const (
 	SELECT message_id, chat_jid, sender_jid, timestamp, is_from_me, type, text, media_type, reply_to_message_id, mentions, edited
 	FROM messages
 	WHERE message_id = ?
+	`
+
+	SelectMessageWithRawByID = `
+	SELECT message_id, chat_jid, sender_jid, timestamp, is_from_me, type, text, media_type, reply_to_message_id, mentions, edited
+	FROM messages
+	WHERE message_id = ?
+	`
+
+	SelectMessageWithRawByChatAndID = `
+	SELECT message_id, chat_jid, sender_jid, timestamp, is_from_me, type, text, media_type, reply_to_message_id, mentions, edited
+	FROM messages
+	WHERE chat_jid = ? AND message_id = ?
+	LIMIT 1
 	`
 
 	UpdateDecodedMessage = `
