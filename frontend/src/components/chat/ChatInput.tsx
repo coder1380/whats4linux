@@ -62,7 +62,7 @@ interface FilePreviewProps {
 }
 
 const FilePreview = ({ file, fileType, onRemove }: FilePreviewProps) => (
-  <div className="mb-2 flex items-center gap-2 bg-gray-100 dark:bg-gray-700 p-2 rounded-lg">
+  <div className="mb-2 flex items-center rounded-xl gap-2 bg-gray-100 dark:bg-gray-700 p-2 rounded-lg">
     <div className="flex-1">
       <div className="flex items-center gap-2">
         {FILE_TYPE_ICONS[fileType as keyof typeof FILE_TYPE_ICONS]}
@@ -161,7 +161,7 @@ export function ChatInput({
     <div
       className={clsx(
         "relative p-2 mb-4 mx-5 border border-dark-secondary bg-light-bg dark:bg-dark-tertiary",
-        replyingTo ? "rounded-t-xl rounded-b-3xl" : "rounded-full",
+        (replyingTo || pastedImage || selectedFile) ? "rounded-t-xl rounded-b-3xl" : "rounded-full",
       )}
     >
       {showEmojiPicker && (
