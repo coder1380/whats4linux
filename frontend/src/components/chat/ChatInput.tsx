@@ -161,7 +161,7 @@ export function ChatInput({
     <div
       className={clsx(
         "relative p-2 mb-4 mx-5 border border-dark-secondary bg-light-bg dark:bg-dark-tertiary",
-        (replyingTo || pastedImage || selectedFile) ? "rounded-t-xl rounded-b-3xl" : "rounded-full",
+        replyingTo || pastedImage || selectedFile ? "rounded-t-xl rounded-b-3xl" : "rounded-full",
       )}
     >
       {showEmojiPicker && (
