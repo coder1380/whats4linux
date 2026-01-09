@@ -289,7 +289,7 @@ func (ms *MessageStore) MigrateLIDToPN(ctx context.Context, sd store.LIDStore) e
 }
 
 // ProcessMessageEvent processes a new message event and stores it in messages.db
-func (ms *MessageStore) ProcessMessageEvent(ctx context.Context, sd store.LIDStore, msg *events.Message) string {
+func (ms *MessageStore) ProcessMessageEvent(ctx context.Context, sd store.LIDStore, msg *events.Message, parsedHTML string) string {
 	updateCanonicalJID(ctx, sd, &msg.Info.Chat)
 	updateCanonicalJID(ctx, sd, &msg.Info.Sender)
 
@@ -301,7 +301,7 @@ func (ms *MessageStore) ProcessMessageEvent(ctx context.Context, sd store.LIDSto
 			return ""
 		}
 
-		err := ms.UpdateMessageContent(targetID, newContent)
+		err := ms.UpdateMessageContent(targetID, newContent, parsedHTML)
 		if err != nil {
 			log.Println("Failed to update edited message:", err)
 			return ""
@@ -318,7 +318,12 @@ func (ms *MessageStore) ProcessMessageEvent(ctx context.Context, sd store.LIDSto
 	}
 
 	// Update chatListMap with the new latest message
-	messageText := ExtractMessageText(m.Content)
+	var messageText string
+	if parsedHTML != "" {
+		messageText = parsedHTML
+	} else {
+		messageText = ExtractMessageText(m.Content)
+	}
 	sender := msg.Info.PushName
 	if sender == "" && msg.Info.Sender.User != "" {
 		sender = msg.Info.Sender.User
@@ -338,23 +343,19 @@ func (ms *MessageStore) ProcessMessageEvent(ctx context.Context, sd store.LIDSto
 
 	// Check if message already processed
 	if _, exists := ms.mCache.Get(msg.Info.ID); exists {
-		// Update existing message
-		err := ms.UpdateMessageContent(msg.Info.ID, m.Content)
-		if err != nil {
-			log.Println("Failed to update message:", err)
-		}
 		return ""
 	}
 
 	ms.mCache.Set(msg.Info.ID, 1)
-	err := ms.InsertMessage(&m)
+	err := ms.InsertMessage(&m, parsedHTML)
 	if err != nil {
 		log.Println("Failed to insert message:", err)
 		return ""
 	}
 	return msg.Info.ID
 }
-func (ms *MessageStore) InsertMessage(msg *Message) error {
+// InsertMessage inserts a new message into messages.db
+func (ms *MessageStore) InsertMessage(msg *Message, parsedHTML string) error {
 	// Handle reaction messages differently
 	if msg.Content.GetReactionMessage() != nil {
 		reactionMsg := msg.Content.GetReactionMessage()
@@ -377,7 +378,9 @@ func (ms *MessageStore) InsertMessage(msg *Message) error {
 
 	// Serialize raw message for media types
 
-	if msg.Content.GetConversation() != "" {
+	if parsedHTML != "" {
+		text = parsedHTML
+	} else if msg.Content.GetConversation() != "" {
 		text = msg.Content.GetConversation()
 	} else if msg.Content.GetExtendedTextMessage() != nil {
 		text = msg.Content.GetExtendedTextMessage().GetText()
@@ -481,11 +484,13 @@ func (ms *MessageStore) InsertMessage(msg *Message) error {
 }
 
 // UpdateMessageContent updates an existing message's content
-func (ms *MessageStore) UpdateMessageContent(messageID string, content *waE2E.Message) error {
+func (ms *MessageStore) UpdateMessageContent(messageID string, content *waE2E.Message, parsedHTML string) error {
 	var msgType query.MessageType = query.MessageTypeText
 	var text string
 
-	if content.GetConversation() != "" {
+	if parsedHTML != "" {
+		text = parsedHTML
+	} else if content.GetConversation() != "" {
 		text = content.GetConversation()
 	} else if content.GetExtendedTextMessage() != nil {
 		text = content.GetExtendedTextMessage().GetText()
@@ -978,7 +983,7 @@ func (ms *MessageStore) GetDecodedMessagesPaged(chatJID string, beforeTimestamp 
 		}
 
 		// Populate Content for frontend rendering
-		msg.Content = buildDecodedContent(&msg)
+		msg.Content = ms.buildDecodedContent(&msg)
 
 		messages = append(messages, msg)
 	}
@@ -987,14 +992,24 @@ func (ms *MessageStore) GetDecodedMessagesPaged(chatJID string, beforeTimestamp 
 }
 
 // buildDecodedContent creates a DecodedMessageContent from DecodedMessage fields
-func buildDecodedContent(msg *DecodedMessage) *DecodedMessageContent {
+func (ms *MessageStore) buildDecodedContent(msg *DecodedMessage) *DecodedMessageContent {
 	content := &DecodedMessageContent{}
 
 	// Build context info if there's a reply
 	var contextInfo *ContextInfo
 	if msg.ReplyToMessageID != "" {
-		contextInfo = &ContextInfo{
-			StanzaID: msg.ReplyToMessageID,
+		// Fetch the quoted message
+		quotedMsg, err := ms.GetDecodedMessage(msg.ChatJID, msg.ReplyToMessageID)
+		if err == nil && quotedMsg != nil {
+			contextInfo = &ContextInfo{
+				StanzaID:      msg.ReplyToMessageID,
+				Participant:   quotedMsg.SenderJID,
+				QuotedMessage: quotedMsg.Content,
+			}
+		} else {
+			contextInfo = &ContextInfo{
+				StanzaID: msg.ReplyToMessageID,
+			}
 		}
 	}
 
@@ -1090,7 +1105,7 @@ func (ms *MessageStore) GetDecodedMessage(chatJID string, messageID string) (*De
 	}
 
 	// Populate Content for frontend rendering
-	msg.Content = buildDecodedContent(&msg)
+	msg.Content = ms.buildDecodedContent(&msg)
 
 	return &msg, nil
 }
@@ -1149,7 +1164,7 @@ func (ms *MessageStore) GetDecodedChatList() ([]DecodedMessage, error) {
 		}
 
 		// Populate Content for frontend rendering
-		msg.Content = buildDecodedContent(&msg)
+		msg.Content = ms.buildDecodedContent(&msg)
 
 		messages = append(messages, msg)
 	}

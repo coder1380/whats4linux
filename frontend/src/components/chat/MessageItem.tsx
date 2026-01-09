@@ -46,7 +46,6 @@ export function MessageItem({
   const isSticker = !!content?.stickerMessage
   const isPending = (message as any).isPending || false
   const [senderName, setSenderName] = useState("~ " + message.Info.PushName || "Unknown")
-  const [renderedMarkdown, setRenderedMarkdown] = useState<string>("")
   const [renderedCaptionMarkdown, setRenderedCaptionMarkdown] = useState<string>("")
 
   // Helper function to render caption with markdown
@@ -116,16 +115,6 @@ export function MessageItem({
     }
   }, [message.Info.Sender, chatId, isFromMe])
 
-  // Render markdown
-  useEffect(() => {
-    const textContent = content?.conversation || content?.extendedTextMessage?.text
-
-    if (textContent) {
-      RenderMarkdown(textContent)
-        .then(html => setRenderedMarkdown(html))
-        .catch(() => setRenderedMarkdown(textContent))
-    }
-  }, [content?.conversation, content?.extendedTextMessage])
 
   const contextInfo =
     content?.extendedTextMessage?.contextInfo ||
@@ -154,11 +143,8 @@ export function MessageItem({
   const renderContent = () => {
     if (!content) return <span className="italic opacity-50">Empty Message</span>
     else if (content.conversation || content.extendedTextMessage?.text) {
-      return renderedMarkdown ? (
-        <div dangerouslySetInnerHTML={{ __html: renderedMarkdown }} />
-      ) : (
-        <>{content.conversation || content.extendedTextMessage?.text}</>
-      )
+      const htmlContent = content.conversation || content.extendedTextMessage?.text
+      return <div dangerouslySetInnerHTML={{ __html: htmlContent }} />
     } else if (content.imageMessage)
       return (
         <div className="flex flex-col">

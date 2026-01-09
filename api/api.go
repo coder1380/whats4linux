@@ -626,7 +626,8 @@ func (a *Api) SendMessage(chatJID string, content MessageContent) (string, error
 		},
 		Message: msgContent,
 	}
-	a.messageStore.ProcessMessageEvent(a.ctx, a.waClient.Store.LIDs, msgEvent)
+	parsedHTML := a.processMessageText(msgContent)
+	a.messageStore.ProcessMessageEvent(a.ctx, a.waClient.Store.LIDs, msgEvent, parsedHTML)
 
 	// Extract message text for chat list update
 	var messageText string
@@ -659,6 +660,7 @@ func (a *Api) SendMessage(chatJID string, content MessageContent) (string, error
 		"chatId":      parsedJID.String(),
 		"message":     msg,
 		"messageText": messageText,
+		"parsedHTML":  parsedHTML,
 		"timestamp":   resp.Timestamp.Unix(),
 		"sender":      "You",
 	})
@@ -672,7 +674,8 @@ func (a *Api) mainEventHandler(evt any) {
 		// buf, _ := json.Marshal(v)
 		// fmt.Println("[Event] Message:", string(buf))
 
-		messageID := a.messageStore.ProcessMessageEvent(a.ctx, a.waClient.Store.LIDs, v)
+		parsedHTML := a.processMessageText(v.Message)
+		messageID := a.messageStore.ProcessMessageEvent(a.ctx, a.waClient.Store.LIDs, v, parsedHTML)
 
 		// If a message was processed (inserted or updated), emit the decoded message from DB
 		if messageID != "" {
@@ -681,7 +684,7 @@ func (a *Api) mainEventHandler(evt any) {
 				runtime.EventsEmit(a.ctx, "wa:new_message", map[string]any{
 					"chatId":      v.Info.Chat.String(),
 					"message":     updatedMsg,
-					"messageText": updatedMsg.Text,
+					"messageText": updatedMsg.Text, // Text field contains HTML now, but better than nothing or we can use updatedMsg.Text
 					"timestamp":   v.Info.Timestamp.Unix(),
 					"sender":      v.Info.PushName,
 				})
@@ -1079,4 +1082,52 @@ func (a *Api) GetGroupInfo(jidStr string) (Group, error) {
 		ParticipantCount: GroupInfo.ParticipantCount,
 		Participants:     participants,
 	}, nil
+}
+func (a *Api) processMessageText(msg *waE2E.Message) string {
+	if msg == nil {
+		return ""
+	}
+	var text string
+	var mentionedJIDs []string
+
+	if msg.GetConversation() != "" {
+		text = msg.GetConversation()
+	} else if msg.GetExtendedTextMessage() != nil {
+		text = msg.GetExtendedTextMessage().GetText()
+		if msg.GetExtendedTextMessage().GetContextInfo() != nil {
+			mentionedJIDs = msg.GetExtendedTextMessage().GetContextInfo().GetMentionedJID()
+		}
+	} else {
+		switch {
+		case msg.GetImageMessage() != nil:
+			text = msg.GetImageMessage().GetCaption()
+			if msg.GetImageMessage().GetContextInfo() != nil {
+				mentionedJIDs = msg.GetImageMessage().GetContextInfo().GetMentionedJID()
+			}
+		case msg.GetVideoMessage() != nil:
+			text = msg.GetVideoMessage().GetCaption()
+			if msg.GetVideoMessage().GetContextInfo() != nil {
+				mentionedJIDs = msg.GetVideoMessage().GetContextInfo().GetMentionedJID()
+			}
+		case msg.GetDocumentMessage() != nil:
+			text = msg.GetDocumentMessage().GetCaption()
+			if msg.GetDocumentMessage().GetContextInfo() != nil {
+				mentionedJIDs = msg.GetDocumentMessage().GetContextInfo().GetMentionedJID()
+			}
+		}
+	}
+
+	if text == "" {
+		return ""
+	}
+
+	// First convert Markdown to HTML (which handles escaping)
+	htmlText := markdown.MarkdownLinesToHTML(text)
+
+	// Then replace mentions in the HTML
+	if len(mentionedJIDs) > 0 {
+		htmlText = replaceMentions(htmlText, mentionedJIDs, a)
+	}
+
+	return htmlText
 }
