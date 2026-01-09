@@ -354,6 +354,7 @@ func (ms *MessageStore) ProcessMessageEvent(ctx context.Context, sd store.LIDSto
 	}
 	return msg.Info.ID
 }
+
 // InsertMessage inserts a new message into messages.db
 func (ms *MessageStore) InsertMessage(msg *Message, parsedHTML string) error {
 	// Handle reaction messages differently
