@@ -14,7 +14,11 @@ import {
   EmptyStateIcon,
 } from "../assets/svgs/chat_icons"
 import { SearchIcon } from "../assets/svgs/settings_icons"
-import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "../components/common/resizable"
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from "../components/common/resizable"
 
 const USE_SAMPLE_DATA = false
 
