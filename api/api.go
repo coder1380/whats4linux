@@ -175,9 +175,7 @@ func canonicalUserJID(ctx context.Context, client *whatsmeow.Client, jid types.J
 		}
 	}
 
-	jid.ToNonAD()
-
-	return jid
+	return jid.ToNonAD()
 }
 
 func (a *Api) GetContact(jid types.JID) (*Contact, error) {
