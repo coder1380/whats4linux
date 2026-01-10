@@ -12,8 +12,7 @@ const (
 		file_sha256 BLOB,
 		file_enc_sha256 BLOB,
 		width INTEGER,
-		height INTEGER,
-		FOREIGN KEY (message_id) REFERENCES messages(message_id) ON DELETE CASCADE
+		height INTEGER
 	);
 	`
 
