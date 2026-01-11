@@ -642,6 +642,8 @@ func (a *Api) SendMessage(chatJID string, content MessageContent) (string, error
 		return "", fmt.Errorf("unsupported message type: %s", content.Type)
 	}
 
+	log.Printf("SendMessage Content: %+v\n", msgContent)
+
 	resp, err := a.waClient.SendMessage(a.ctx, parsedJID, msgContent)
 	if err != nil {
 		log.Println("SendMessage error:", err)

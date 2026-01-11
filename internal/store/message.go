@@ -49,7 +49,6 @@ type MessageStore struct {
 
 	// [chatJID.User] = ChatMessage
 	chatListMap   misc.VMap[string, ChatMessage]
-	mCache        misc.VMap[string, uint8]
 	reactionCache misc.NMap[string, string, []string]
 
 	stmtInsertMessage *sql.Stmt
@@ -68,7 +67,6 @@ func NewMessageStore() (*MessageStore, error) {
 
 	ms := &MessageStore{
 		db:            db,
-		mCache:        misc.NewVMap[string, uint8](),
 		chatListMap:   misc.NewVMap[string, ChatMessage](),
 		reactionCache: misc.NewNMap[string, string, []string](),
 		writeCh:       make(chan writeJob, 100),
@@ -368,14 +366,9 @@ func (ms *MessageStore) ProcessMessageEvent(ctx context.Context, sd store.LIDSto
 		MessageTime: msg.Info.Timestamp.Unix(),
 		Sender:      sender,
 	}
+
 	ms.chatListMap.Set(chat, chatMsg)
 
-	// Check if message already processed
-	if _, exists := ms.mCache.Get(msg.Info.ID); exists {
-		return ""
-	}
-
-	ms.mCache.Set(msg.Info.ID, 1)
 	err := ms.InsertMessage(&msg.Info, msg.Message, parsedHTML)
 	if err != nil {
 		log.Println("Failed to insert message:", err)
