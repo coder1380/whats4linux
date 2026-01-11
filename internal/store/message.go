@@ -718,17 +718,11 @@ func (ms *MessageStore) GetChatList() []ChatMessage {
 			messageText = text.String
 		}
 
-		// Determine sender for display
-		sender := ""
-		if isFromMe {
-			sender = "You"
-		}
-
 		chatMsg := ChatMessage{
 			JID:         jid,
 			MessageText: messageText,
 			MessageTime: timestamp,
-			Sender:      sender,
+			Sender:      senderJID,
 		}
 
 		// Cache per-chat entry

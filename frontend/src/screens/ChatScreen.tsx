@@ -20,6 +20,7 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from "../components/common/resizable"
+import { useContactStore } from "@/store/useContactStore"
 
 const USE_SAMPLE_DATA = false
 
@@ -257,6 +258,7 @@ export function ChatListScreen({ onOpenSettings }: ChatListScreenProps) {
   const updateChatLastMessage = useChatStore(state => state.updateChatLastMessage)
   const updateSingleChat = useChatStore(state => state.updateSingleChat)
   const getChat = useChatStore(state => state.getChat)
+  const getContactName = useContactStore(state => state.getContactName)
 
   // Get filtered chat IDs - only re-renders when IDs or search changes, not on message/timestamp updates
   const filteredChatIds = useFilteredChatIds()
@@ -278,21 +280,25 @@ export function ChatListScreen({ onOpenSettings }: ChatListScreenProps) {
     selectChat(null)
   }, [selectChat])
 
-  const transformChatElements = useCallback((chatElements: api.ChatElement[]): ChatItem[] => {
-    return chatElements.map(c => {
-      const isGroup = c.jid?.endsWith("@g.us") || false
-      const avatar = c.avatar_url || ""
-      return {
-        id: c.jid || "",
-        name: c.full_name || c.push_name || c.short || c.jid || "Unknown",
-        subtitle: c.latest_message || "",
-        type: isGroup ? "group" : "contact",
-        timestamp: c.LatestTS,
-        avatar: avatar,
-        sender: c.Sender || "",
-      }
-    })
-  }, [])
+  const transformChatElements = useCallback(async (chatElements: api.ChatElement[]): Promise<ChatItem[]> => {
+    return Promise.all(
+      chatElements.map(async c => {
+        const isGroup = c.jid?.endsWith("@g.us") || false
+        const avatar = c.avatar_url || ""
+        const senderName = c.Sender ? await getContactName(c.Sender) : ""
+        
+        return {
+          id: c.jid || "",
+          name: c.full_name || c.push_name || c.short || c.jid || "Unknown",
+          subtitle: c.latest_message || "",
+          type: isGroup ? "group" : "contact",
+          timestamp: c.LatestTS,
+          avatar: avatar,
+          sender: senderName || "",
+        }
+      })
+    )
+  }, [getContactName])
 
   const loadAvatars = useCallback(
     async (chatItems: ChatItem[]) => {
@@ -360,7 +366,7 @@ export function ChatListScreen({ onOpenSettings }: ChatListScreenProps) {
         return
       }
 
-      const items = transformChatElements(chatElements)
+      const items = await transformChatElements(chatElements)
       setChats(items)
       // Load avatars asynchronously without blocking the UI
       loadAvatars(items)

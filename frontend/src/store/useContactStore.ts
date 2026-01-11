@@ -1,11 +1,10 @@
 import { create } from "zustand"
 import { immer } from "zustand/middleware/immer"
 import { GetContact, GetJIDUser } from "../../wailsjs/go/api/Api"
-import { types } from "../../wailsjs/go/models"
 
 interface ContactStore {
   contacts: Record<string, { name: string; timestamp: number }>
-  getContactName: (jid: types.JID) => Promise<string>
+  getContactName: (jid: any) => Promise<string>
   disposeCache: () => void
 }
 
