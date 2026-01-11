@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"log"
 	"time"
 
@@ -389,14 +388,14 @@ func (ms *MessageStore) InsertMessage(info *types.MessageInfo, msg *waE2E.Messag
 	}
 
 	var (
-		text, replyToMessageID string
-		forwarded              = false
-		emc                    wa.ExtendedMediaContent
-		mediaType              mtypes.MediaType
-		width, height          int
+		text, fileName, replyToMessageID string
+		forwarded                        = false
+		emc                              wa.ExtendedMediaContent
+		mediaType                        mtypes.MediaType
+		width, height                    int
 	)
 
-	text, replyToMessageID, forwarded, emc, mediaType, width, height = extractMessageContent(msg)
+	text, fileName, replyToMessageID, forwarded, emc, mediaType, width, height = extractMessageContent(msg)
 
 	if parsedHTML != "" {
 		text = parsedHTML
@@ -432,6 +431,7 @@ func (ms *MessageStore) InsertMessage(info *types.MessageInfo, msg *waE2E.Messag
 			emc.GetFileSHA256(),
 			emc.GetFileEncSHA256(),
 			width, height,
+			fileName,
 		)
 		return err
 	})
@@ -441,13 +441,13 @@ func (ms *MessageStore) InsertMessage(info *types.MessageInfo, msg *waE2E.Messag
 func (ms *MessageStore) UpdateMessageContent(messageID string, content *waE2E.Message, parsedHTML string) error {
 
 	var (
-		text          string
-		emc           wa.ExtendedMediaContent
-		mediaType     mtypes.MediaType
-		width, height int
+		text, fileName string
+		emc            wa.ExtendedMediaContent
+		mediaType      mtypes.MediaType
+		width, height  int
 	)
 
-	text, _, _, emc, mediaType, width, height = extractMessageContent(content)
+	text, fileName, _, _, emc, mediaType, width, height = extractMessageContent(content)
 
 	if text == "" {
 		return nil
@@ -479,6 +479,7 @@ func (ms *MessageStore) UpdateMessageContent(messageID string, content *waE2E.Me
 			emc.GetFileSHA256(),
 			emc.GetFileEncSHA256(),
 			width, height,
+			fileName,
 			messageID,
 		)
 		return err
@@ -525,6 +526,7 @@ func (ms *MessageStore) GetMessageWithMedia(chatJID string, messageID string) (*
 			url           sql.NullString
 			mimetype      sql.NullString
 			directPath    sql.NullString
+			fileName      sql.NullString
 			mediaKey      []byte
 			fileSHA256    []byte
 			fileEncSHA256 []byte
@@ -540,6 +542,7 @@ func (ms *MessageStore) GetMessageWithMedia(chatJID string, messageID string) (*
 			&fileEncSHA256,
 			&width,
 			&height,
+			&fileName,
 		)
 		if err != nil {
 			log.Println("GetMessageWithMedia media query error:", err)
@@ -682,6 +685,7 @@ func (ms *MessageStore) GetChatList() []ChatMessage {
 			msgType   sql.NullInt32
 			text      sql.NullString
 			replyTo   sql.NullString
+			fileName  sql.NullString
 			edited    bool
 			forwarded bool
 		)
@@ -697,8 +701,9 @@ func (ms *MessageStore) GetChatList() []ChatMessage {
 			&edited,
 			&forwarded,
 			&msgType,
+			&fileName,
 		); err != nil {
-			fmt.Println("Failed to scan chat list row:", err)
+			log.Println("Failed to scan chat list row:", err)
 			continue
 		}
 
@@ -923,7 +928,7 @@ type ContextInfo struct {
 }
 
 // extractMessageContent extracts text, reply info, and media from a WhatsApp message
-func extractMessageContent(msg *waE2E.Message) (text, replyToMessageID string, forwarded bool, emc wa.ExtendedMediaContent, mediaType mtypes.MediaType, width, height int) {
+func extractMessageContent(msg *waE2E.Message) (text, fileName, replyToMessageID string, forwarded bool, emc wa.ExtendedMediaContent, mediaType mtypes.MediaType, width, height int) {
 	switch {
 	case msg.GetConversation() != "":
 		text = msg.GetConversation()
@@ -938,9 +943,9 @@ func extractMessageContent(msg *waE2E.Message) (text, replyToMessageID string, f
 	case msg.GetImageMessage() != nil:
 		emc = msg.GetImageMessage()
 		text = msg.GetImageMessage().GetCaption()
-		mediaType = mtypes.MediaTypeImage
 		width = int(msg.GetImageMessage().GetWidth())
 		height = int(msg.GetImageMessage().GetHeight())
+		mediaType = mtypes.MediaTypeImage
 	case msg.GetVideoMessage() != nil:
 		emc = msg.GetVideoMessage()
 		text = msg.GetVideoMessage().GetCaption()
@@ -948,6 +953,7 @@ func extractMessageContent(msg *waE2E.Message) (text, replyToMessageID string, f
 	case msg.GetDocumentMessage() != nil:
 		emc = msg.GetDocumentMessage()
 		text = msg.GetDocumentMessage().GetCaption()
+		fileName = msg.GetDocumentMessage().GetFileName()
 		mediaType = mtypes.MediaTypeDocument
 	case msg.GetAudioMessage() != nil:
 		emc = msg.GetAudioMessage()
@@ -959,7 +965,7 @@ func extractMessageContent(msg *waE2E.Message) (text, replyToMessageID string, f
 		height = int(msg.GetStickerMessage().GetHeight())
 	default:
 		if text == "" {
-			return "", "", false, nil, 0, 0, 0
+			return
 		}
 	}
 
@@ -967,7 +973,7 @@ func extractMessageContent(msg *waE2E.Message) (text, replyToMessageID string, f
 		forwarded = emc.GetContextInfo().GetIsForwarded()
 	}
 
-	return text, replyToMessageID, forwarded, emc, mediaType, width, height
+	return
 }
 
 // GetDecodedMessagesPaged returns a page of decoded messages from messages.db
@@ -993,8 +999,8 @@ func (ms *MessageStore) GetDecodedMessagesPaged(chatJID string, beforeTimestamp 
 		var replyTo sql.NullString
 		var text sql.NullString
 		var msgType sql.NullInt32
+		var fileName sql.NullString
 
-		// 	SELECT message_id, chat_jid, sender_jid, timestamp, is_from_me, text, has_media, reply_to_message_id, edited, forwarded
 		err := rows.Scan(
 			&msg.MessageID,
 			&msg.ChatJID,
@@ -1006,6 +1012,7 @@ func (ms *MessageStore) GetDecodedMessagesPaged(chatJID string, beforeTimestamp 
 			&msg.Edited,
 			&msg.Forwarded,
 			&msgType,
+			&fileName,
 		)
 		if err != nil {
 			log.Println("Failed to scan decoded message:", err)
@@ -1039,7 +1046,7 @@ func (ms *MessageStore) GetDecodedMessagesPaged(chatJID string, beforeTimestamp 
 		}
 
 		// Populate Content for frontend rendering
-		msg.Content = ms.buildDecodedContent(&msg)
+		msg.Content = ms.buildDecodedContent(chatJID, msg.Text, msg.ReplyToMessageID, fileName.String, msg.Type)
 
 		messages = append(messages, msg)
 	}
@@ -1048,47 +1055,50 @@ func (ms *MessageStore) GetDecodedMessagesPaged(chatJID string, beforeTimestamp 
 }
 
 // buildDecodedContent creates a DecodedMessageContent from DecodedMessage fields
-func (ms *MessageStore) buildDecodedContent(msg *DecodedMessage) *DecodedMessageContent {
+func (ms *MessageStore) buildDecodedContent(
+	chatJID, text, replyToMessageId, fileName string,
+	mediaType mtypes.MediaType,
+) *DecodedMessageContent {
 	content := &DecodedMessageContent{}
 
 	// Build context info if there's a reply
 	var contextInfo *ContextInfo
-	if msg.ReplyToMessageID != "" {
+	if replyToMessageId != "" {
 		// Fetch the quoted message, but don't recursively load its content to avoid race conditions
 
-		quotedMsg, err := ms.GetDecodedMessage(msg.ChatJID, msg.ReplyToMessageID)
+		quotedMsg, err := ms.GetDecodedMessage(chatJID, replyToMessageId)
 		if err == nil && quotedMsg != nil {
 			contextInfo = &ContextInfo{
-				StanzaID:      msg.ReplyToMessageID,
+				StanzaID:      replyToMessageId,
 				Participant:   quotedMsg.SenderJID,
 				QuotedMessage: quotedMsg.Content,
 			}
 		} else {
 			contextInfo = &ContextInfo{
-				StanzaID: msg.ReplyToMessageID,
+				StanzaID: replyToMessageId,
 			}
 		}
 	}
 
 	// Based on message type, populate the appropriate content field
-	switch mtypes.MediaType(msg.Type) {
+	switch mtypes.MediaType(mediaType) {
 	case mtypes.MediaTypeNone:
 		if contextInfo != nil {
 			content.ExtendedTextMessage = &ExtendedTextContent{
-				Text:        msg.Text,
+				Text:        text,
 				ContextInfo: contextInfo,
 			}
 		} else {
-			content.Conversation = msg.Text
+			content.Conversation = text
 		}
 	case mtypes.MediaTypeImage:
 		content.ImageMessage = &MediaMessageContent{
-			Caption:     msg.Text,
+			Caption:     text,
 			ContextInfo: contextInfo,
 		}
 	case mtypes.MediaTypeVideo:
 		content.VideoMessage = &MediaMessageContent{
-			Caption:     msg.Text,
+			Caption:     text,
 			ContextInfo: contextInfo,
 		}
 	case mtypes.MediaTypeAudio:
@@ -1097,7 +1107,8 @@ func (ms *MessageStore) buildDecodedContent(msg *DecodedMessage) *DecodedMessage
 		}
 	case mtypes.MediaTypeDocument:
 		content.DocumentMessage = &DocumentMessageContent{
-			FileName:    msg.Text,
+			FileName:    fileName,
+			Caption:     text,
 			ContextInfo: contextInfo,
 		}
 	case mtypes.MediaTypeSticker:
@@ -1105,7 +1116,7 @@ func (ms *MessageStore) buildDecodedContent(msg *DecodedMessage) *DecodedMessage
 			ContextInfo: contextInfo,
 		}
 	default:
-		content.Conversation = msg.Text
+		content.Conversation = text
 	}
 
 	return content
@@ -1113,19 +1124,17 @@ func (ms *MessageStore) buildDecodedContent(msg *DecodedMessage) *DecodedMessage
 
 // GetDecodedMessage returns a single decoded message from messages.db
 func (ms *MessageStore) GetDecodedMessage(chatJID string, messageID string) (*DecodedMessage, error) {
-	var result *DecodedMessage
-	var resultErr error
+	var msg DecodedMessage
+	var replyTo sql.NullString
+	var text sql.NullString
+	var msgType sql.NullInt32
+	var fileName sql.NullString
+
+	msg.ChatJID = chatJID
+	msg.MessageID = messageID
 
 	// Use runSync to ensure read consistency with pending writes
 	err := ms.runSync(func(tx *sql.Tx) error {
-		var msg DecodedMessage
-		var replyTo sql.NullString
-		var text sql.NullString
-		var msgType sql.NullInt32
-
-		msg.ChatJID = chatJID
-		msg.MessageID = messageID
-
 		err := tx.QueryRow(query.SelectDecodedMessageByChatAndID, chatJID, messageID).Scan(
 			&msg.SenderJID,
 			&msg.Timestamp,
@@ -1135,56 +1144,50 @@ func (ms *MessageStore) GetDecodedMessage(chatJID string, messageID string) (*De
 			&msg.Edited,
 			&msg.Forwarded,
 			&msgType,
+			&fileName,
 		)
 
 		if err != nil {
-			resultErr = err
-			return nil
+			return err
 		}
-		msg.Type = mtypes.MediaType(msgType.Int32)
 
-		if text.Valid {
-			msg.Text = text.String
-		}
-		if replyTo.Valid {
-			msg.ReplyToMessageID = replyTo.String
-		}
-		msg.MediaType = int(msg.Type)
-
-		result = &msg
 		return nil
 	})
+
+	msg.Type = mtypes.MediaType(msgType.Int32)
+
+	if text.Valid {
+		msg.Text = text.String
+	}
+	if replyTo.Valid {
+		msg.ReplyToMessageID = replyTo.String
+	}
+	msg.MediaType = int(msg.Type)
 
 	if err != nil {
 		return nil, err
 	}
-	if resultErr != nil {
-		return nil, resultErr
-	}
-	if result == nil {
-		return nil, sql.ErrNoRows
-	}
 
 	// Load reactions outside transaction to avoid nested runSync
-	reactions, err := ms.GetReactionsByMessageID(result.MessageID)
+	reactions, err := ms.GetReactionsByMessageID(msg.MessageID)
 	if err == nil {
-		result.Reactions = reactions
+		msg.Reactions = reactions
 	}
 
 	// Populate Info for frontend compatibility
-	result.Info = DecodedMessageInfo{
-		ID:        result.MessageID,
-		Timestamp: time.Unix(result.Timestamp, 0).Format(time.RFC3339),
-		IsFromMe:  result.IsFromMe,
+	msg.Info = DecodedMessageInfo{
+		ID:        msg.MessageID,
+		Timestamp: time.Unix(msg.Timestamp, 0).Format(time.RFC3339),
+		IsFromMe:  msg.IsFromMe,
 		PushName:  "",
-		Sender:    result.SenderJID,
-		Chat:      result.ChatJID,
+		Sender:    msg.SenderJID,
+		Chat:      msg.ChatJID,
 	}
 
 	// Populate Content for frontend rendering
-	result.Content = ms.buildDecodedContent(result)
+	msg.Content = ms.buildDecodedContent(chatJID, msg.Text, msg.ReplyToMessageID, fileName.String, msg.Type)
 
-	return result, nil
+	return &msg, nil
 }
 
 // GetDecodedChatList returns the chat list from messages.db with the latest message for each chat
@@ -1203,6 +1206,7 @@ func (ms *MessageStore) GetDecodedChatList() ([]DecodedMessage, error) {
 		var replyTo sql.NullString
 		var text sql.NullString
 		var msgType sql.NullInt32
+		var fileName sql.NullString
 
 		err := rows.Scan(
 			&msg.MessageID,
@@ -1215,6 +1219,7 @@ func (ms *MessageStore) GetDecodedChatList() ([]DecodedMessage, error) {
 			&msg.Edited,
 			&msg.Forwarded,
 			&msgType,
+			&fileName,
 		)
 		if err != nil {
 			log.Println("Failed to scan decoded message for chat list:", err)
@@ -1244,7 +1249,7 @@ func (ms *MessageStore) GetDecodedChatList() ([]DecodedMessage, error) {
 		}
 
 		// Populate Content for frontend rendering
-		msg.Content = ms.buildDecodedContent(&msg)
+		msg.Content = ms.buildDecodedContent(msg.ChatJID, msg.Text, msg.ReplyToMessageID, fileName.String, msg.Type)
 
 		messages = append(messages, msg)
 	}

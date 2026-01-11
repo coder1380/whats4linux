@@ -40,7 +40,7 @@ const (
 	`
 
 	SelectDecodedMessageByChatAndID = `
-	SELECT m.sender_jid, m.timestamp, m.is_from_me, m.text, m.reply_to_message_id, m.edited, m.forwarded, mm.type
+	SELECT m.sender_jid, m.timestamp, m.is_from_me, m.text, m.reply_to_message_id, m.edited, m.forwarded, mm.type, mm.file_name
 	FROM messages AS m
 	LEFT JOIN message_media AS mm ON mm.message_id = m.message_id
 	WHERE m.chat_jid = ? AND m.message_id = ?
@@ -61,7 +61,7 @@ const (
 
 	// Messages.db paged queries (for frontend)
 	SelectMessagesByChatBeforeTimestamp = `
-	SELECT m.message_id, m.chat_jid, m.sender_jid, m.timestamp, m.is_from_me, m.text, m.reply_to_message_id, m.edited, m.forwarded, mm.type
+	SELECT m.message_id, m.chat_jid, m.sender_jid, m.timestamp, m.is_from_me, m.text, m.reply_to_message_id, m.edited, m.forwarded, mm.type, mm.file_name
 	FROM (
 		SELECT message_id, chat_jid, sender_jid, timestamp, is_from_me, text, reply_to_message_id, edited, forwarded
 		FROM messages
@@ -74,7 +74,7 @@ const (
 	`
 
 	SelectLatestMessagesByChat = `
-	SELECT m.message_id, m.chat_jid, m.sender_jid, m.timestamp, m.is_from_me, m.text, m.reply_to_message_id, m.edited, m.forwarded, mm.type
+	SELECT m.message_id, m.chat_jid, m.sender_jid, m.timestamp, m.is_from_me, m.text, m.reply_to_message_id, m.edited, m.forwarded, mm.type, mm.file_name
 	FROM (
 		SELECT message_id, chat_jid, sender_jid, timestamp, is_from_me, text, reply_to_message_id, edited, forwarded
 		FROM messages
@@ -95,7 +95,7 @@ const (
 
 	// Chat list from messages.db
 	SelectDecodedChatList = `
-	SELECT m.message_id, m.chat_jid, m.sender_jid, m.timestamp, m.is_from_me, m.text, m.reply_to_message_id, m.edited, m.forwarded, mm.type
+	SELECT m.message_id, m.chat_jid, m.sender_jid, m.timestamp, m.is_from_me, m.text, m.reply_to_message_id, m.edited, m.forwarded, mm.type, mm.file_name
 	FROM (
 		SELECT 
 			message_id, chat_jid, sender_jid, timestamp, is_from_me, text, reply_to_message_id, edited, forwarded,
