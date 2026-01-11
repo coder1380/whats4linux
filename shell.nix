@@ -14,7 +14,7 @@
   atk ? pkgs.atk,
   gcc ? pkgs.gcc,
   webkitgtk ? pkgs.webkitgtk_4_1,
-  libsoup ? pkgs.libsoup_2_4,
+  libsoup ? pkgs.libsoup_3,
 }:
 
 pkgs.mkShell {
@@ -42,7 +42,7 @@ pkgs.mkShell {
     pkgs.zlib.dev
     pkgs.fontconfig.dev
     pkgs.webkitgtk_4_1.dev
-    libsoup.dev
+    pkgs.libsoup_3.dev
   ];
 
   shellHook = ''
@@ -51,14 +51,14 @@ pkgs.mkShell {
     
     # Compose PKG_CONFIG_PATH from all relevant dev outputs
     export PKG_CONFIG_PATH=""
-    for pkg in ${pkgs.gtk3.dev} ${pkgs.webkitgtk_4_1.dev} ${pkgs.pango.dev} ${pkgs.glib.dev} ${pkgs.harfbuzz.dev} ${pkgs.atk.dev} ${pkgs.cairo.dev} ${pkgs.gdk-pixbuf.dev} ${libsoup.dev} ${pkgs.zlib.dev} ${pkgs.fontconfig.dev}; do
+    for pkg in ${pkgs.gtk3.dev} ${pkgs.webkitgtk_4_1.dev} ${pkgs.pango.dev} ${pkgs.glib.dev} ${pkgs.harfbuzz.dev} ${pkgs.atk.dev} ${pkgs.cairo.dev} ${pkgs.gdk-pixbuf.dev} ${pkgs.libsoup_3.dev} ${pkgs.zlib.dev} ${pkgs.fontconfig.dev}; do
       if [ -d "$pkg/lib/pkgconfig" ]; then
         export PKG_CONFIG_PATH="$pkg/lib/pkgconfig:$PKG_CONFIG_PATH"
       fi
     done
     export PKG_CONFIG_PATH
     export LD_LIBRARY_PATH=""
-    for pkg in ${pkgs.gtk3.dev} ${pkgs.webkitgtk_4_1.dev} ${pkgs.pango.dev} ${pkgs.glib.dev} ${pkgs.harfbuzz.dev} ${pkgs.atk.dev} ${pkgs.cairo.dev} ${pkgs.gdk-pixbuf.dev} ${libsoup.dev} ${pkgs.zlib.dev} ${pkgs.fontconfig.dev}; do
+    for pkg in ${pkgs.gtk3.dev} ${pkgs.webkitgtk_4_1.dev} ${pkgs.pango.dev} ${pkgs.glib.dev} ${pkgs.harfbuzz.dev} ${pkgs.atk.dev} ${pkgs.cairo.dev} ${pkgs.gdk-pixbuf.dev} ${pkgs.libsoup_3.dev} ${pkgs.zlib.dev} ${pkgs.fontconfig.dev}; do
       if [ -d "$pkg/lib" ]; then
         export LD_LIBRARY_PATH="$pkg/lib:$LD_LIBRARY_PATH"
       fi
@@ -82,6 +82,6 @@ pkgs.mkShell {
     # echo "PKG_CONFIG_PATH set to: $PKG_CONFIG_PATH"
     # echo "LD_LIBRARY_PATH set to: $LD_LIBRARY_PATH"
     # echo "LDFLAGS set to: $LDFLAGS"
-    echo "Now you can run: wails build -clean -tags webkit2_41"
+    echo "Now you can run: wails build -clean -tags \"webkit2_41 soup_3\""
   '';
 }

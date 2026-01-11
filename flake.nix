@@ -1,5 +1,5 @@
 {
-  description = "A basic flake with custom webkitgtk and libsoup derivations";
+  description = "A basic flake for building W4L";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 

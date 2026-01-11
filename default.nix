@@ -8,7 +8,7 @@
   ),
   buildGoModule ? pkgs.buildGoModule,
   webkitgtk ? pkgs.webkitgtk_4_1,
-  libsoup ? pkgs.libsoup_2_4,
+  libsoup ? pkgs.libsoup_3,
 }:
 
 let
@@ -77,7 +77,7 @@ pkgs.buildGoModule {
     pkgs.zlib.dev
     pkgs.fontconfig.dev
     pkgs.webkitgtk_4_1.dev
-    libsoup.dev
+    pkgs.libsoup_3.dev
   ];
   # ++ (if old_webkitgtk != null then [ old_webkitgtk ] else []) ++
   # (if old_libsoup != null then [ old_libsoup ] else []);
@@ -126,7 +126,7 @@ pkgs.buildGoModule {
             "${pkgs.atk.dev}/lib/pkgconfig"
             "${pkgs.cairo.dev}/lib/pkgconfig"
             "${pkgs.gdk-pixbuf.dev}/lib/pkgconfig"
-            "${libsoup.dev}/lib/pkgconfig"
+            "${pkgs.libsoup_3.dev}/lib/pkgconfig"
             "${pkgs.zlib.dev}/lib/pkgconfig"
           ]
         }" \
@@ -140,7 +140,7 @@ pkgs.buildGoModule {
             "${pkgs.atk.dev}/lib/pkgconfig"
             "${pkgs.cairo.dev}/lib/pkgconfig"
             "${pkgs.gdk-pixbuf.dev}/lib/pkgconfig"
-            "${libsoup.dev}/lib/pkgconfig"
+            "${pkgs.libsoup_3.dev}/lib/pkgconfig"
             "${pkgs.zlib.dev}/lib/pkgconfig"
           ]
         }"
