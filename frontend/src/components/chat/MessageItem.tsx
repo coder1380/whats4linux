@@ -61,7 +61,6 @@ export function MessageItem({
 
   const onDoubleClick = () => {
     handleReply();
-
   }
 
   const handleReply = () => onReply?.(message)
