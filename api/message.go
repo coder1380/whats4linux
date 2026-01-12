@@ -172,7 +172,7 @@ func (a *Api) buildQuotedContext(chatJID types.JID, quotedMessageID string) (*wa
 	}
 
 	if msg.Info.Sender.User != "" {
-		participantJID := msg.Info.Sender.String()
+		participantJID := msg.Info.Sender.ToNonAD().String()
 		contextInfo.Participant = proto.String(participantJID)
 	}
 
