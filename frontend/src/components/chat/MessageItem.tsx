@@ -34,7 +34,7 @@ export function MessageItem({
   onQuotedClick,
   highlightedMessageId,
   isActive,
-  index
+  index,
 }: MessageItemProps) {
   // console.log(message)
   const isFromMe = message.Info.IsFromMe
@@ -53,7 +53,7 @@ export function MessageItem({
   const innerDiv = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
-    if (isActive){
+    if (isActive) {
       console.log(index)
       handleReply()
     }
@@ -222,12 +222,11 @@ export function MessageItem({
   const hasMedia = !!(content?.imageMessage || content?.videoMessage)
 
   const handleDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (innerDiv.current){
+    if (innerDiv.current) {
       const react = innerDiv.current.getBoundingClientRect()
-      if (!isFromMe && event.clientX > react.right){
+      if (!isFromMe && event.clientX > react.right) {
         handleReply()
-      }
-      else if (isFromMe && event.clientX < react.left){
+      } else if (isFromMe && event.clientX < react.left) {
         handleReply()
       }
     }
@@ -245,7 +244,8 @@ export function MessageItem({
           },
         )}
       >
-        <div ref={innerDiv}
+        <div
+          ref={innerDiv}
           className={clsx(
             "max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg xl:max-w-xl rounded-lg p-2 mx-5 shadow-sm relative min-w-0",
             {
@@ -260,8 +260,7 @@ export function MessageItem({
               "bg-received-bubble-bg dark:bg-received-bubble-dark-bg text-(--color-received-bubble-text) dark:text-(--color-received-bubble-dark-text)":
                 !isFromMe && !isSticker,
             },
-          )
-        }
+          )}
           // onDoubleClick={handleDoubleClick}
         >
           {/* Message Menu - positioned at top right corner */}

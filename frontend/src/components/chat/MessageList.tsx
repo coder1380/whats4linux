@@ -1,4 +1,12 @@
-import { forwardRef, useImperativeHandle, useRef, useCallback, memo, useEffect, useState } from "react"
+import {
+  forwardRef,
+  useImperativeHandle,
+  useRef,
+  useCallback,
+  memo,
+  useEffect,
+  useState,
+} from "react"
 import { store } from "../../../wailsjs/go/models"
 import { MessageItem } from "./MessageItem"
 
@@ -165,8 +173,8 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
             onReply={onReply}
             onQuotedClick={onQuotedClick}
             highlightedMessageId={highlightedMessageId}
-            isActive={activeChildIndex === index+1}
-            index={index-1}
+            isActive={activeChildIndex === index + 1}
+            index={index - 1}
           />
         </div>
       ))}
