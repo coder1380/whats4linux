@@ -14,8 +14,6 @@ interface MessageItemProps {
   onReply?: (message: store.DecodedMessage) => void
   onQuotedClick?: (messageId: string) => void
   highlightedMessageId?: string | null
-  isActive: boolean
-  index: number
 }
 
 const formatSize = (bytes: number) => {
@@ -32,9 +30,7 @@ export function MessageItem({
   sentMediaCache,
   onReply,
   onQuotedClick,
-  highlightedMessageId,
-  isActive,
-  index
+  highlightedMessageId
 }: MessageItemProps) {
   // console.log(message)
   const isFromMe = message.Info.IsFromMe
@@ -51,13 +47,6 @@ export function MessageItem({
   const isPending = (message as any).isPending || false
   const [senderName, setSenderName] = useState("~ " + message.Info.PushName || "Unknown")
   const innerDiv = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    if (isActive){
-      console.log(index)
-      handleReply()
-    }
-  }, [isActive])
 
   // Helper function to render caption with markdown
   const renderCaption = (caption: string | undefined) => {
